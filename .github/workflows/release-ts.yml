@@ -1,0 +1,45 @@
+name: Release TS → npm
+
+# Triggered by a `ts-vX.Y.Z` tag. Builds and publishes @vatvit/freshen to npm.
+#
+# SETUP REQUIRED (one-time):
+#   1. Add an npm automation token as secret NPM_TOKEN here.
+#   2. Keep packages/ts/package.json "version" in sync with the tag.
+#   3. Release by tagging: git tag ts-v1.2.0 && git push origin ts-v1.2.0
+
+on:
+  push:
+    tags: ['ts-v*']
+
+permissions:
+  contents: read
+  id-token: write   # npm provenance
+
+defaults:
+  run:
+    working-directory: packages/ts
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm install --no-audit --no-fund
+
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#ts-v}"
+          test "$pkg" = "$tag" || { echo "tag $tag != package.json $pkg"; exit 1; }
+
+      - run: npm run build
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

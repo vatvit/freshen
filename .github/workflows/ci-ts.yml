@@ -1,0 +1,53 @@
+name: CI (TS)
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['packages/ts/**', '.github/workflows/ci-ts.yml']
+  pull_request:
+    paths: ['packages/ts/**', '.github/workflows/ci-ts.yml']
+
+defaults:
+  run:
+    working-directory: packages/ts
+
+jobs:
+  # Build + quality gate on a modern Node (dev toolchain needs Node >=18).
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run coverage
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ts-dist
+          path: packages/ts/dist
+
+  # Smoke-load the built dist on every supported Node (incl. the 16 floor).
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['16', '18', '20', '22']
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ts-dist
+          path: dist
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Smoke-load esm + cjs
+        working-directory: .
+        run: |
+          node -e "import('./dist/index.js').then(m => { if (!m.VERSION) throw new Error('esm load failed'); })"
+          node -e "const m = require('./dist/index.cjs'); if (!m.VERSION) throw new Error('cjs load failed');"

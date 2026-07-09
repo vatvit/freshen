@@ -1,0 +1,40 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# PHP
+packages/php/vendor/
+packages/php/composer.lock
+packages/php/.phpunit.cache/
+packages/php/.phpunit.result.cache
+
+# TS / JS
+packages/ts/node_modules/
+packages/ts/dist/
+packages/ts/coverage/
+packages/ts/*.tsbuildinfo
+node_modules/
+
+# Env / local
+*.local
+.env
+
+# AI assistant / agent config (do not commit or share)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
+.continue/
+.windsurf/
+.junie/
+.codeium/
+.ai/
+.agents/
+AGENTS.md
+GEMINI.md
+.github/copilot-instructions.md
