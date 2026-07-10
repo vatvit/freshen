@@ -26,11 +26,6 @@ parameters:
 			path: src/Cache.php
 
 		-
-			message: "#^Method Stash\\\\Interfaces\\\\DriverInterface\\:\\:clear\\(\\) invoked with 2 parameters, 0\\-1 required\\.$#"
-			count: 1
-			path: src/Cache.php
-
-		-
 			message: "#^Using nullsafe method call on non\\-nullable type Freshen\\\\Interface\\\\JitterInterface\\. Use \\-\\> instead\\.$#"
 			count: 1
 			path: src/Cache.php

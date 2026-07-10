@@ -1,6 +1,6 @@
 # Releasing
 
-`freshen` uses **GitFlow** branching and **independent, per-package SemVer**
+Freshen uses **GitFlow** branching and **independent, per-package SemVer**
 versioning. The two packages release on their own cadence.
 
 ## Branching model (GitFlow)

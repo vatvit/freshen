@@ -34,6 +34,17 @@ final class ItemClearTest extends TestCase
         return $item;
     }
 
+    public function testKeyPathReturnsTheNamespacedStashPath(): void
+    {
+        // keyPath() exposes the resolved path array the driver deletes under — used
+        // to batch invalidateExact([...]) into one DEL (FRSH-020). Stash builds it:
+        // index 0 is the storage-type slot ('cache'; the lock path swaps it to 'sp'),
+        // index 1 the pool namespace, then the '/'-split key segments.
+        $item = $this->itemFor(new Ephemeral(), 'product/detail/7');
+
+        self::assertSame(['cache', 'stash_default', 'product', 'detail', '7'], $item->keyPath());
+    }
+
     public function testHierarchicalClearRemovesTheStoredValue(): void
     {
         $pool = new Pool(new Ephemeral());

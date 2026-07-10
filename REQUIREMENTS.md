@@ -1,4 +1,4 @@
-# freshen — Project Requirements
+# Freshen — Project Requirements
 
 The standards this library is built and maintained to. Applies to every language
 package. These are requirements, not aspirations — CI enforces the automatable
@@ -6,7 +6,7 @@ ones, and review enforces the rest.
 
 ## 1. Purpose
 
-A high-performance cache library implementing **stale-while-revalidate** with
+A cache library implementing **stale-while-revalidate** with
 **cache-stampede prevention** (single-flight leader/follower recompute + jittered
 TTLs), shipped as a reusable, shareable open-source package in multiple languages.
 

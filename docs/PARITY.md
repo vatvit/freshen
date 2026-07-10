@@ -1,6 +1,6 @@
-# freshen — Parity Contract
+# Freshen — Parity Contract
 
-This is the **language-neutral feature specification** for `freshen`. It defines
+This is the **language-neutral feature specification** for Freshen. It defines
 the behaviour and observable API that *every* language package must implement
 identically. It is the source of truth for cross-language **parity**: the PHP
 package (`packages/php`) is the reference implementation, and the TS/JS package
@@ -26,7 +26,7 @@ package (`packages/php`) is the reference implementation, and the TS/JS package
 
 ## 1. Purpose
 
-`freshen` is a **stale-while-revalidate (SWR)** cache with **stampede
+Freshen is a **stale-while-revalidate (SWR)** cache with **stampede
 prevention**. On a read it serves a fresh cached value when one exists; when the
 value is due for recomputation it elects a **single** caller (the *leader*) to
 recompute while every other caller (a *follower*) is served the previous value or
@@ -264,7 +264,7 @@ Three mutating operations, each accepting a single selector **or a list**, and a
 | Operation | Selector type | Effect |
 |-----------|---------------|--------|
 | `invalidate` | `KeyPrefix` \| `Key` (or list) | **Hierarchical** delete: removes everything under the prefix (a `Key` used here selects its whole subtree). |
-| `invalidateExact` | `Key` (or list) | **Exact** delete: removes only that key, leaving hierarchical neighbours intact. |
+| `invalidateExact` | `Key` (or list) | **Exact** delete: removes only that key, leaving its subtree (children) intact. |
 | `refresh` | `Key` (or list) | Recompute via `loader` and `put` the result now. |
 
 **Sync path (`mode = SYNC`):** perform the operation immediately against the
