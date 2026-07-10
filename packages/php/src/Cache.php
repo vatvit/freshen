@@ -210,15 +210,31 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
 
     public function invalidateExact(KeyInterface|array $keys, SyncMode $mode = SyncMode::ASYNC): void
     {
-        foreach (is_array($keys) ? $keys : [$keys] as $key) {
-            if ($mode === SyncMode::ASYNC) {
-                $this->dispatch(new InvalidateExactEvent($key));
-                continue;
-            }
+        $list = is_array($keys) ? $keys : [$keys];
 
-            // See invalidate(): route the exact delete through the pool Item so the
-            // driver receives the real key path, not a Key object (FRSH-019).
-            $this->item($key)->clear(true);
+        if ($mode === SyncMode::ASYNC) {
+            foreach ($list as $key) {
+                $this->dispatch(new InvalidateExactEvent($key));
+            }
+            return;
+        }
+
+        $driver = $this->pool->getDriver();
+        if ($driver instanceof Driver\Redis) {
+            // Batch the whole set into ONE DEL. Each Item carries the resolved,
+            // namespaced Stash key path (the FRSH-019 seam); handing them to the
+            // driver together avoids one round-trip per key (FRSH-020).
+            $paths = array_map(fn (KeyInterface $key): array => $this->item($key)->keyPath(), $list);
+            $driver->clearExactMany($paths);
+        } else {
+            // Non-Redis driver: fall back to the per-key exact clear through the Item.
+            foreach ($list as $key) {
+                $this->item($key)->clear(true);
+            }
+        }
+
+        // One metric per invalidated key (unchanged semantics; inc() takes no count).
+        for ($i = count($list); $i > 0; $i--) {
             $this->metrics?->inc('cache_invalidate');
         }
     }

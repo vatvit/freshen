@@ -118,4 +118,24 @@ final class Redis extends BaseRedis
         return parent::clear($key);
     }
 
+    /**
+     * Exact-delete many keys in a single DEL — the batched form of
+     * clear($key, exact: true). Each element is a Stash key-path array (as held by an
+     * Item, via Freshen\Item::keyPath()). Collapses N per-key DELs into one (FRSH-020).
+     *
+     * @param list<array<int, string>> $keys
+     */
+    public function clearExactMany(array $keys): void
+    {
+        if ($keys === []) {
+            return;
+        }
+
+        $real = [];
+        foreach ($keys as $key) {
+            $real[] = $this->makeKeyString($key);
+        }
+        $this->redis->del(...$real);
+    }
+
 }

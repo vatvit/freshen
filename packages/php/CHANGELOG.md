@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+### Changed
+- `invalidateExact([...], SyncMode::SYNC)` now issues a single `DEL` for the whole
+  batch (one round-trip) instead of one `DEL` per key. Single-key calls are unchanged
+  in effect; no public API change (FRSH-020).
+
 ### Fixed
 - **`Cache::get()` on an uncached key no longer throws `Invalid TTL`.** The
   single-flight lock (`Stash\Item::lock()`) passes an *absolute* expiration, but

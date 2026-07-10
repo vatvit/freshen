@@ -6,7 +6,7 @@ ones, and review enforces the rest.
 
 ## 1. Purpose
 
-A high-performance cache library implementing **stale-while-revalidate** with
+A cache library implementing **stale-while-revalidate** with
 **cache-stampede prevention** (single-flight leader/follower recompute + jittered
 TTLs), shipped as a reusable, shareable open-source package in multiple languages.
 

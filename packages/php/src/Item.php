@@ -30,6 +30,21 @@ class Item extends \Stash\Item {
     }
 
     /**
+     * The item's resolved, namespaced Stash key-path array (the authoritative path
+     * the driver deletes under). Exposed so a caller can batch an exact delete of
+     * several items into a single driver round-trip without reconstructing the path
+     * by hand (see Freshen\Driver\Redis::clearExactMany, FRSH-020).
+     *
+     * @return array<int, string>
+     */
+    public function keyPath(): array
+    {
+        /** @var array<int, string> $key */
+        $key = $this->key;
+        return $key;
+    }
+
+    /**
      * Copy of \Stash\Item::executeSet() (tedivm/stash v1.2.1) with the random TTL
      * reduction removed, so the TTL set by expiresAfter() — already jittered
      * deterministically by Freshen\DefaultJitter — is stored verbatim.

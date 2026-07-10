@@ -98,6 +98,29 @@ final class CacheRedisTest extends RedisTestCase
         self::assertSame(2, $this->loaderCalls);
     }
 
+    public function testInvalidateExactBatchRemovesEveryEntry(): void
+    {
+        // FRSH-020: invalidateExact([...], SYNC) batches into one DEL and must remove
+        // *every* listed key (next get of each recomputes).
+        $cache = $this->newCache();
+        $keys = [
+            new Key('product', 'batch', 1),
+            new Key('product', 'batch', 2),
+            new Key('product', 'batch', 3),
+        ];
+        foreach ($keys as $key) {
+            $cache->get($key);                              // fill: loaderCalls 1,2,3
+        }
+        self::assertSame(3, $this->loaderCalls);
+
+        $cache->invalidateExact($keys, SyncMode::SYNC);     // one batched DEL
+
+        foreach ($keys as $key) {
+            $cache->get($key);                              // each recomputes: 4,5,6
+        }
+        self::assertSame(6, $this->loaderCalls, 'every batched key was removed, so all three recomputed');
+    }
+
     public function testHierarchicalInvalidateDropsTheKey(): void
     {
         // Bug 3: invalidate(SYNC) on a key must invalidate it (next get recomputes).
