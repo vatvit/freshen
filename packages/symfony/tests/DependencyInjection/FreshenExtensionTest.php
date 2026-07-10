@@ -27,7 +27,7 @@ final class FreshenExtensionTest extends TestCase
         return $container;
     }
 
-    public function testSingleCacheRegistersServiceAndAliasesFreshenCache(): void
+    public function testSingleCacheRegistersServiceAndNamedAutowiring(): void
     {
         $container = $this->load([
             'connection' => 'Redis',
@@ -38,9 +38,10 @@ final class FreshenExtensionTest extends TestCase
         self::assertTrue($container->hasDefinition('freshen.pool.Redis'));
         self::assertTrue($container->hasDefinition('freshen.driver.Redis'));
 
-        // Exactly one cache → Freshen\Cache is aliased for plain autowiring.
-        self::assertTrue($container->hasAlias(Cache::class));
-        self::assertSame('freshen.cache.top_sellers', (string) $container->getAlias(Cache::class));
+        // A cache is one dataset — even a single cache is injected BY NAME
+        // (Freshen\Cache $topSellersCache), never as a bare Freshen\Cache "default".
+        self::assertFalse($container->hasAlias(Cache::class));
+        self::assertTrue($container->hasAlias(Cache::class . ' $topSellersCache'));
 
         // Cache is built with the configured scalars + the correct references.
         $args = $container->getDefinition('freshen.cache.top_sellers')->getArguments();

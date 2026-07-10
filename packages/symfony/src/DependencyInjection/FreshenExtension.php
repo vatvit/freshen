@@ -23,9 +23,9 @@ use Symfony\Component\DependencyInjection\Reference;
  * shared Stash pool/driver per connection and an {@see AsyncHandler} listener wired to
  * Symfony's PSR-14 `event_dispatcher` for each cache.
  *
- * A single configured cache is also aliased to `Freshen\Cache` for plain autowiring;
- * with several caches, named-argument autowiring aliases (`Freshen\Cache $fooCache`)
- * are registered instead.
+ * Each cache is injected **by name** via a named-argument autowiring alias
+ * (`Freshen\Cache $fooCache`), for one or many caches alike — a cache is one dataset, so
+ * there is no bare `Freshen\Cache` "default".
  */
 final class FreshenExtension extends Extension
 {
@@ -133,21 +133,16 @@ final class FreshenExtension extends Extension
     }
 
     /**
-     * Make caches injectable by type. Exactly one cache aliases `Freshen\Cache`
-     * directly; multiple register named-argument autowiring aliases so a controller
-     * can request `Freshen\Cache $topSellersCache`.
+     * Make each cache injectable **by name** via named-argument autowiring, so a
+     * controller requests `Freshen\Cache $topSellersCache` (the argument name is the
+     * camel-cased cache name + `Cache`). This holds for one or many caches alike: a
+     * Freshen cache is one dataset, so there is no bare `Freshen\Cache` "default" —
+     * that would silently break the moment a second dataset is added.
      *
      * @param array<string, string> $cacheServiceIds  cache name => service id
      */
     private function registerAutowiringAliases(ContainerBuilder $container, array $cacheServiceIds): void
     {
-        if (count($cacheServiceIds) === 1) {
-            $only = array_values($cacheServiceIds)[0];
-            $container->setAlias(Cache::class, $only)->setPublic(true);
-
-            return;
-        }
-
         foreach ($cacheServiceIds as $name => $serviceId) {
             $container->registerAliasForArgument($serviceId, Cache::class, $this->camelCase($name) . 'Cache');
         }
