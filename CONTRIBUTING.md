@@ -29,9 +29,29 @@ across the full Node range (see [`scripts/`](scripts/README.md)).
 ```bash
 scripts/php-test.sh              # full matrix: 8.1 8.2 8.3 8.4 (phpunit + phpstan)
 scripts/php-test.sh 8.1          # a single version
+scripts/php-coverage.sh          # unit coverage + floor gate (PCOV, PHP 8.3, floor 90%)
+scripts/php-coverage.sh 8.4 92   # a specific version + floor
+scripts/php-redis-it.sh          # live-Redis integration lane (ext-redis + redis:7)
 ```
 
-Quality gates: PHPUnit + **PHPStan (level max)**.
+Quality gates: PHPUnit + **PHPStan (level max)** + a **coverage floor gate**.
+
+### Test lanes
+
+- **Unit suite** (default `composer test`) — deterministic and dependency-free;
+  external backends are mocked, no live Redis (REQUIREMENTS §5).
+- **Integration lane** (`composer test:integration` / `scripts/php-redis-it.sh`) —
+  the `integration` PHPUnit suite, excluded from the default run. Covers
+  `Freshen\Driver\Redis` against a real Redis (needs `ext-redis`); run in Docker
+  with a `redis:7` service.
+
+### Coverage gate (REQUIREMENTS §4)
+
+Coverage is tracked and **must not regress**. `scripts/php-coverage.sh` (and the CI
+`coverage` job) run the unit suite under PCOV and fail if line coverage drops below
+the floor (**90%**; current ~94%). `Freshen\Driver\Redis` is excluded from the gate
+denominator — it has no unit coverage by design and is exercised by the integration
+lane instead. Raise the floor as coverage improves; never lower it to make CI pass.
 
 ## TS / JS — `packages/ts`
 

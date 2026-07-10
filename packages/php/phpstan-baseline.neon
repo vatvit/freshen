@@ -36,9 +36,29 @@ parameters:
 			path: src/Cache.php
 
 		-
-			message: "#^Access to an undefined property Freshen\\\\CallableLoader\\:\\:\\$fn\\.$#"
+			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:clear\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
 			count: 1
-			path: src/CallableLoader.php
+			path: src/Driver/Redis.php
+
+		-
+			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:setOptions\\(\\) has parameter \\$options with no value type specified in iterable type array\\.$#"
+			count: 1
+			path: src/Driver/Redis.php
+
+		-
+			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:storeAsLock\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
+			count: 1
+			path: src/Driver/Redis.php
+
+		-
+			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:storeData\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
+			count: 1
+			path: src/Driver/Redis.php
+
+		-
+			message: "#^Property Stash\\\\Driver\\\\Redis\\:\\:\\$redis \\(Redis\\|RedisArray\\) does not accept Redis\\|RedisCluster\\.$#"
+			count: 1
+			path: src/Driver/Redis.php
 
 		-
 			message: "#^Method Freshen\\\\Interface\\\\CacheInterface\\:\\:invalidate\\(\\) has parameter \\$selectors with no value type specified in iterable type array\\.$#"
@@ -84,6 +104,16 @@ parameters:
 			message: "#^Method Freshen\\\\Interface\\\\MetricsInterface\\:\\:observe\\(\\) has parameter \\$labels with no value type specified in iterable type array\\.$#"
 			count: 1
 			path: src/Interface/MetricsInterface.php
+
+		-
+			message: "#^Method Stash\\\\Interfaces\\\\DriverInterface\\:\\:clear\\(\\) invoked with 2 parameters, 0\\-1 required\\.$#"
+			count: 1
+			path: src/Item.php
+
+		-
+			message: "#^Property Stash\\\\Item\\:\\:\\$key \\(array\\) in isset\\(\\) is not nullable\\.$#"
+			count: 1
+			path: src/Item.php
 
 		-
 			message: "#^Method Freshen\\\\Key\\:\\:__construct\\(\\) has parameter \\$id with no value type specified in iterable type array\\.$#"
@@ -134,33 +164,3 @@ parameters:
 			message: "#^Property Freshen\\\\Key\\:\\:\\$prefixSegments type has no value type specified in iterable type array\\.$#"
 			count: 1
 			path: src/Key.php
-
-		-
-			message: "#^Method Stash\\\\Interfaces\\\\DriverInterface\\:\\:clear\\(\\) invoked with 2 parameters, 0\\-1 required\\.$#"
-			count: 1
-			path: src/MyItem.php
-
-		-
-			message: "#^Method Freshen\\\\MyRedisDriver\\:\\:clear\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/MyRedisDriver.php
-
-		-
-			message: "#^Method Freshen\\\\MyRedisDriver\\:\\:setOptions\\(\\) has parameter \\$options with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/MyRedisDriver.php
-
-		-
-			message: "#^Method Freshen\\\\MyRedisDriver\\:\\:storeAsLock\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/MyRedisDriver.php
-
-		-
-			message: "#^Method Freshen\\\\MyRedisDriver\\:\\:storeData\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/MyRedisDriver.php
-
-		-
-			message: "#^Property Stash\\\\Driver\\\\Redis\\:\\:\\$redis \\(Redis\\|RedisArray\\) does not accept Redis\\|RedisCluster\\.$#"
-			count: 1
-			path: src/MyRedisDriver.php

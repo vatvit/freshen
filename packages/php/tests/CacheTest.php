@@ -10,6 +10,7 @@ use Freshen\Interface\LoaderInterface;
 use Freshen\Interface\JitterInterface;
 use Freshen\Interface\MetricsInterface;
 use Freshen\SyncMode;
+use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Stash\Interfaces\ItemInterface;
@@ -19,6 +20,8 @@ use Stash\Invalidation;
 
 final class CacheTest extends TestCase
 {
+    // --- Mock factories (keep the createMock noise out of the test bodies) ---
+
     private function newKey(string $id = 'k'): KeyInterface
     {
         $key = $this->createMock(KeyInterface::class);
@@ -26,33 +29,108 @@ final class CacheTest extends TestCase
         return $key;
     }
 
+    private function newPool(): StashPoolInterface&MockObject
+    {
+        return $this->createMock(StashPoolInterface::class);
+    }
+
+    private function newItem(): ItemInterface&MockObject
+    {
+        return $this->createMock(ItemInterface::class);
+    }
+
+    private function newLoader(): LoaderInterface&MockObject
+    {
+        return $this->createMock(LoaderInterface::class);
+    }
+
+    private function newJitter(): JitterInterface&MockObject
+    {
+        return $this->createMock(JitterInterface::class);
+    }
+
     private function newDate(int $ts): \DateTime
     {
         return (new \DateTime())->setTimestamp($ts);
     }
 
-    public function testGetFreshHit(): void
+    // --- Stash get()-flow scaffolding (Cache::get calls getItem once per stage) ---
+
+    /** Expect getItem($key) to be called once per supplied item, in order. */
+    private function expectGetItems(StashPoolInterface&MockObject $pool, string $key, ItemInterface ...$items): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $item = $this->createMock(ItemInterface::class);
-        $key = $this->newKey('fresh');
+        $pool->expects($this->exactly(count($items)))
+            ->method('getItem')
+            ->with($key)
+            ->willReturnOnConsecutiveCalls(...$items);
+    }
 
-        // Fresh hit path
-        $pool->method('getItem')->with('fresh')->willReturn($item);
-
+    /** Stage 1 item: a fresh hit inside the soft window. */
+    private function configureFreshHit(ItemInterface&MockObject $item, mixed $value, int $created, int $expiration): void
+    {
         $item->expects($this->once())
             ->method('setInvalidationMethod')
             ->with(Invalidation::PRECOMPUTE, 60);
-
-        $item->method('get')->willReturn('value');
+        $item->method('get')->willReturn($value);
         $item->method('isHit')->willReturn(true);
-        $item->method('getCreation')->willReturn($this->newDate(1_000));
-        $item->method('getExpiration')->willReturn($this->newDate(1_600));
+        $item->method('getCreation')->willReturn($this->newDate($created));
+        $item->method('getExpiration')->willReturn($this->newDate($expiration));
+    }
 
-        $loader = $this->createMock(LoaderInterface::class);
-        $jitter = $this->createMock(JitterInterface::class);
+    /** Stage 1 item: a fast-path miss that then wins ($winsLock) or loses the single-flight lock. */
+    private function configureInitialMiss(ItemInterface&MockObject $item, bool $winsLock): void
+    {
+        $item->expects($this->once())
+            ->method('setInvalidationMethod')
+            ->with(Invalidation::PRECOMPUTE, 60);
+        $item->method('get')->willReturn(null);
+        $item->method('isHit')->willReturn(false);
+        $item->expects($this->once())->method('lock')->willReturn($winsLock);
+    }
 
-        $cache = new Cache($pool, $loader, 600, 60, $jitter);
+    /** Stage 3 item (follower): serve-stale attempt. $value === null means no stale value. */
+    private function configureStale(ItemInterface&MockObject $item, mixed $value, ?int $created = null, ?int $expiration = null): void
+    {
+        $item->expects($this->once())
+            ->method('setInvalidationMethod')
+            ->with(Invalidation::OLD);
+        $item->method('get')->willReturn($value);
+        if ($created !== null) {
+            $item->method('getCreation')->willReturn($this->newDate($created));
+        }
+        if ($expiration !== null) {
+            $item->method('getExpiration')->willReturn($this->newDate($expiration));
+        }
+    }
+
+    /** Stage 4 item (follower): short-wait attempt, hitting or still missing. */
+    private function configureWait(ItemInterface&MockObject $item, mixed $value, bool $isHit, ?int $created = null, ?int $expiration = null): void
+    {
+        $item->expects($this->once())
+            ->method('setInvalidationMethod')
+            ->with(Invalidation::SLEEP, 150, 6);
+        $item->method('get')->willReturn($value);
+        $item->method('isHit')->willReturn($isHit);
+        if ($created !== null) {
+            $item->method('getCreation')->willReturn($this->newDate($created));
+        }
+        if ($expiration !== null) {
+            $item->method('getExpiration')->willReturn($this->newDate($expiration));
+        }
+    }
+
+    // --- Tests ---
+
+    public function testGetFreshHit(): void
+    {
+        $pool = $this->newPool();
+        $item = $this->newItem();
+        $key = $this->newKey('fresh');
+
+        $this->expectGetItems($pool, 'fresh', $item);
+        $this->configureFreshHit($item, 'value', 1_000, 1_600);
+
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, $this->newJitter());
         $res = $cache->get($key);
 
         $this->assertTrue($res->isHit());
@@ -63,36 +141,23 @@ final class CacheTest extends TestCase
 
     public function testLeaderComputeAndSaveOnMissWithLock(): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $itemInitial = $this->createMock(ItemInterface::class);
-        $itemForSave = $this->createMock(ItemInterface::class);
+        $pool = $this->newPool();
+        $itemInitial = $this->newItem();
+        $itemForSave = $this->newItem();
         $key = $this->newKey('leader');
 
-        // First getItem -> initial miss item
-        $pool->expects($this->exactly(2))
-            ->method('getItem')
-            ->with('leader')
-            ->willReturnOnConsecutiveCalls($itemInitial, $itemForSave);
-
-        // Fast path miss
-        $itemInitial->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::PRECOMPUTE, 60);
-        $itemInitial->method('get')->willReturn(null);
-        $itemInitial->method('isHit')->willReturn(false);
-
-        // Become leader
-        $itemInitial->expects($this->once())->method('lock')->willReturn(true);
+        $this->expectGetItems($pool, 'leader', $itemInitial, $itemForSave);
+        $this->configureInitialMiss($itemInitial, winsLock: true);
 
         // Save path
         $itemForSave->expects($this->once())->method('set')->with('loaded');
         $itemForSave->expects($this->once())->method('expiresAfter')->with(600);
         $pool->expects($this->once())->method('save')->with($itemForSave);
 
-        $loader = $this->createMock(LoaderInterface::class);
+        $loader = $this->newLoader();
         $loader->expects($this->once())->method('resolve')->with($key)->willReturn('loaded');
 
-        $jitter = $this->createMock(JitterInterface::class);
+        $jitter = $this->newJitter();
         $jitter->method('apply')->with(600, $key)->willReturn(600);
 
         $cache = new Cache($pool, $loader, 600, 60, $jitter);
@@ -104,36 +169,16 @@ final class CacheTest extends TestCase
 
     public function testFollowerServeStaleWhenLockedByAnother(): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $itemInitial = $this->createMock(ItemInterface::class);
-        $itemStale = $this->createMock(ItemInterface::class);
+        $pool = $this->newPool();
+        $itemInitial = $this->newItem();
+        $itemStale = $this->newItem();
         $key = $this->newKey('stale');
 
-        // First getItem -> initial miss item
-        $pool->expects($this->exactly(2))
-            ->method('getItem')
-            ->with('stale')
-            ->willReturnOnConsecutiveCalls($itemInitial, $itemStale);
+        $this->expectGetItems($pool, 'stale', $itemInitial, $itemStale);
+        $this->configureInitialMiss($itemInitial, winsLock: false);
+        $this->configureStale($itemStale, 'stale-value', 1_000, 1_600);
 
-        $itemInitial->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::PRECOMPUTE, 60);
-        $itemInitial->method('get')->willReturn(null);
-        $itemInitial->method('isHit')->willReturn(false);
-        $itemInitial->expects($this->once())->method('lock')->willReturn(false);
-
-        // Serve stale path
-        $itemStale->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::OLD);
-        $itemStale->method('get')->willReturn('stale-value');
-        $itemStale->method('getCreation')->willReturn($this->newDate(1_000));
-        $itemStale->method('getExpiration')->willReturn($this->newDate(1_600));
-
-        $loader = $this->createMock(LoaderInterface::class);
-        $jitter = $this->createMock(JitterInterface::class);
-
-        $cache = new Cache($pool, $loader, 600, 60, $jitter);
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, $this->newJitter());
         $res = $cache->get($key);
 
         $this->assertTrue($res->isStale());
@@ -144,44 +189,18 @@ final class CacheTest extends TestCase
 
     public function testFollowerWaitFreshAfterShortSleep(): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $itemInitial = $this->createMock(ItemInterface::class);
-        $itemStale = $this->createMock(ItemInterface::class);
-        $itemWait = $this->createMock(ItemInterface::class);
+        $pool = $this->newPool();
+        $itemInitial = $this->newItem();
+        $itemStale = $this->newItem();
+        $itemWait = $this->newItem();
         $key = $this->newKey('sleep');
 
-        // getItem calls: initial (miss) -> stale (empty) -> wait (fresh)
-        $pool->expects($this->exactly(3))
-            ->method('getItem')
-            ->with('sleep')
-            ->willReturnOnConsecutiveCalls($itemInitial, $itemStale, $itemWait);
+        $this->expectGetItems($pool, 'sleep', $itemInitial, $itemStale, $itemWait);
+        $this->configureInitialMiss($itemInitial, winsLock: false);
+        $this->configureStale($itemStale, null); // no stale value -> fall through to wait
+        $this->configureWait($itemWait, 'fresh-after-wait', isHit: true, created: 2_000, expiration: 2_600);
 
-        $itemInitial->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::PRECOMPUTE, 60);
-        $itemInitial->method('get')->willReturn(null);
-        $itemInitial->method('isHit')->willReturn(false);
-        $itemInitial->expects($this->once())->method('lock')->willReturn(false);
-
-        // No stale value available -> fall through to the wait path
-        $itemStale->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::OLD);
-        $itemStale->method('get')->willReturn(null);
-
-        // Follower waits, then the leader's fresh value appears
-        $itemWait->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::SLEEP, 150, 6);
-        $itemWait->method('get')->willReturn('fresh-after-wait');
-        $itemWait->method('isHit')->willReturn(true);
-        $itemWait->method('getCreation')->willReturn($this->newDate(2_000));
-        $itemWait->method('getExpiration')->willReturn($this->newDate(2_600));
-
-        $loader = $this->createMock(LoaderInterface::class);
-        $jitter = $this->createMock(JitterInterface::class);
-
-        $cache = new Cache($pool, $loader, 600, 60, $jitter);
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, $this->newJitter());
         $res = $cache->get($key);
 
         $this->assertTrue($res->isHit());
@@ -192,55 +211,55 @@ final class CacheTest extends TestCase
 
     public function testFailOpenComputeWhenLeaderNotAvailable(): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $itemInitial = $this->createMock(ItemInterface::class);
-        $itemStale = $this->createMock(ItemInterface::class);
-        $itemWait = $this->createMock(ItemInterface::class);
+        $pool = $this->newPool();
+        $itemInitial = $this->newItem();
+        $itemStale = $this->newItem();
+        $itemWait = $this->newItem();
         $key = $this->newKey('race');
 
-        // Sequence: initial -> stale try -> wait try
-        $pool->expects($this->exactly(3))
-            ->method('getItem')
-            ->with('race')
-            ->willReturnOnConsecutiveCalls($itemInitial, $itemStale, $itemWait);
+        $this->expectGetItems($pool, 'race', $itemInitial, $itemStale, $itemWait);
+        $this->configureInitialMiss($itemInitial, winsLock: false);
+        $this->configureStale($itemStale, null);          // no stale
+        $this->configureWait($itemWait, null, isHit: false); // wait yields nothing
 
-        // Miss and can't lock
-        $itemInitial->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::PRECOMPUTE, 60);
-        $itemInitial->method('get')->willReturn(null);
-        $itemInitial->method('isHit')->willReturn(false);
-        $itemInitial->expects($this->once())->method('lock')->willReturn(false);
-
-        // No stale available
-        $itemStale->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::OLD);
-        $itemStale->method('get')->willReturn(null);
-
-        // Wait but still no hit
-        $itemWait->expects($this->once())
-            ->method('setInvalidationMethod')
-            ->with(Invalidation::SLEEP, 150, 6);
-        $itemWait->method('get')->willReturn(null);
-        $itemWait->method('isHit')->willReturn(false);
-
-        $loader = $this->createMock(LoaderInterface::class);
+        $loader = $this->newLoader();
         $loader->expects($this->once())->method('resolve')->with($key)->willReturn('fallback');
 
-        $jitter = $this->createMock(JitterInterface::class);
-
-        $cache = new Cache($pool, $loader, 600, 60, $jitter);
+        // failOpen defaults to true.
+        $cache = new Cache($pool, $loader, 600, 60, $this->newJitter());
         $res = $cache->get($key);
 
         $this->assertTrue($res->isHit(), 'Fail-open should produce a hit-like result with computed value');
         $this->assertSame('fallback', $res->value());
     }
 
+    public function testFailClosedReturnsMissWhenLeaderRaceLost(): void
+    {
+        $pool = $this->newPool();
+        $itemInitial = $this->newItem();
+        $itemStale = $this->newItem();
+        $itemWait = $this->newItem();
+        $key = $this->newKey('closed');
+
+        $this->expectGetItems($pool, 'closed', $itemInitial, $itemStale, $itemWait);
+        $this->configureInitialMiss($itemInitial, winsLock: false);
+        $this->configureStale($itemStale, null);
+        $this->configureWait($itemWait, null, isHit: false);
+
+        $loader = $this->newLoader();
+        // fail-closed: the loader must NOT be consulted; result is a miss.
+        $loader->expects($this->never())->method('resolve');
+
+        $cache = new Cache($pool, $loader, 600, 60, $this->newJitter(), null, null, false);
+        $res = $cache->get($key);
+
+        $this->assertTrue($res->isMiss(), 'fail-closed must return a miss, not compute');
+    }
+
     public function testPutSavesWithJitteredTtl(): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $item = $this->createMock(ItemInterface::class);
+        $pool = $this->newPool();
+        $item = $this->newItem();
         $key = $this->newKey('put');
 
         $pool->expects($this->once())->method('getItem')->with('put')->willReturn($item);
@@ -248,25 +267,24 @@ final class CacheTest extends TestCase
         $item->expects($this->once())->method('expiresAfter')->with(555);
         $pool->expects($this->once())->method('save')->with($item);
 
-        $loader = $this->createMock(LoaderInterface::class);
-        $jitter = $this->createMock(JitterInterface::class);
+        $jitter = $this->newJitter();
         $jitter->method('apply')->with(600, $key)->willReturn(555);
 
-        $cache = new Cache($pool, $loader, 600, 60, $jitter);
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, $jitter);
         $cache->put($key, 'v');
         $this->addToAssertionCount(1); // if no exceptions, it's fine
     }
 
     public function testInvalidateAsyncAndSync(): void
     {
-        $loader = $this->createMock(LoaderInterface::class);
-        $jitter = $this->createMock(JitterInterface::class);
+        $loader = $this->newLoader();
+        $jitter = $this->newJitter();
         $metrics = $this->createMock(MetricsInterface::class);
         $selector = $this->newKey('sel');
 
         // ASYNC invalidate should dispatch and not touch the driver
         $driverA = $this->createMock(StashDriverInterface::class);
-        $poolA = $this->createMock(StashPoolInterface::class);
+        $poolA = $this->newPool();
         $poolA->method('getDriver')->willReturn($driverA);
         $dispatcherA = $this->createMock(EventDispatcherInterface::class);
         $dispatcherA->expects($this->once())->method('dispatch')->with($this->anything());
@@ -276,7 +294,7 @@ final class CacheTest extends TestCase
 
         // SYNC invalidate should call driver->clear (hierarchical)
         $driverB = $this->createMock(StashDriverInterface::class);
-        $poolB = $this->createMock(StashPoolInterface::class);
+        $poolB = $this->newPool();
         $poolB->method('getDriver')->willReturn($driverB);
         $driverB->expects($this->once())->method('clear')->with($selector);
         (new Cache($poolB, $loader, 600, 60, $jitter, null, $metrics))
@@ -284,21 +302,33 @@ final class CacheTest extends TestCase
 
         // invalidateExact SYNC should call clear with the exact flag
         $driverC = $this->createMock(StashDriverInterface::class);
-        $poolC = $this->createMock(StashPoolInterface::class);
+        $poolC = $this->newPool();
         $poolC->method('getDriver')->willReturn($driverC);
         $driverC->expects($this->once())->method('clear')->with($selector, true);
         (new Cache($poolC, $loader, 600, 60, $jitter, null, $metrics))
             ->invalidateExact($selector, SyncMode::SYNC);
     }
 
+    public function testAsyncInvalidateDispatchesEveryListElement(): void
+    {
+        $dispatcher = $this->createMock(EventDispatcherInterface::class);
+
+        // A list selector must dispatch one event PER element — regression for the
+        // old `return` (dispatched only the first). See FRSH-010 / FRSH-008.
+        $dispatcher->expects($this->exactly(2))->method('dispatch');
+
+        (new Cache($this->newPool(), $this->newLoader(), 600, 60, $this->newJitter(), $dispatcher))
+            ->invalidate([$this->newKey('a'), $this->newKey('b')], SyncMode::ASYNC);
+    }
+
     public function testRefreshSyncLoadsAndPuts(): void
     {
-        $pool = $this->createMock(StashPoolInterface::class);
-        $item = $this->createMock(ItemInterface::class);
+        $pool = $this->newPool();
+        $item = $this->newItem();
         $pool->method('getItem')->willReturn($item);
 
-        $loader = $this->createMock(LoaderInterface::class);
-        $jitter = $this->createMock(JitterInterface::class);
+        $loader = $this->newLoader();
+        $jitter = $this->newJitter();
 
         $key = $this->newKey('r');
         $jitter->method('apply')->with(600, $key)->willReturn(600);
@@ -310,5 +340,48 @@ final class CacheTest extends TestCase
 
         $cache = new Cache($pool, $loader, 600, 60, $jitter);
         $cache->refresh($key, SyncMode::SYNC);
+    }
+
+    public function testRefreshAsyncDispatchesOneEventPerKey(): void
+    {
+        $loader = $this->newLoader();
+        $dispatcher = $this->createMock(EventDispatcherInterface::class);
+
+        // ASYNC refresh over a list must dispatch per element and never touch the loader.
+        $dispatcher->expects($this->exactly(2))->method('dispatch');
+        $loader->expects($this->never())->method('resolve');
+
+        (new Cache($this->newPool(), $loader, 600, 60, $this->newJitter(), $dispatcher))
+            ->refresh([$this->newKey('a'), $this->newKey('b')], SyncMode::ASYNC);
+    }
+
+    public function testAsyncModeWithoutDispatcherThrows(): void
+    {
+        // No EventDispatcher provided → any ASYNC operation must fail fast.
+        $cache = new Cache($this->newPool(), $this->newLoader(), 600, 60, $this->newJitter());
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('ASYNC mode requires an EventDispatcher');
+        $cache->invalidate($this->newKey('x'), SyncMode::ASYNC);
+    }
+
+    public function testAsPoolReturnsTheUnderlyingPool(): void
+    {
+        $pool = $this->newPool();
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, $this->newJitter());
+
+        $this->assertSame($pool, $cache->asPool());
+    }
+
+    public function testConstructorRejectsInvalidTtlAndPrecompute(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Cache($this->newPool(), $this->newLoader(), 0, 0, $this->newJitter()); // hardTtlSec < 1
+    }
+
+    public function testConstructorRejectsPrecomputeOutOfRange(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new Cache($this->newPool(), $this->newLoader(), 100, 200, $this->newJitter()); // precomputeSec > hardTtlSec
     }
 }

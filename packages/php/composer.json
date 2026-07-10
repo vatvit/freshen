@@ -11,7 +11,7 @@
         "tedivm/stash": "v1.2.1"
     },
     "suggest": {
-        "ext-redis": "To use the Redis-backed Stash driver (MyRedisDriver)."
+        "ext-redis": "To use the Redis-backed driver (Freshen\\Driver\\Redis)."
     },
     "require-dev": {
         "phpunit/phpunit": "^10.5 || ^11.0",
@@ -29,7 +29,20 @@
     },
     "scripts": {
         "test": "phpunit",
-        "analyse": "phpstan analyse"
+        "test:integration": "phpunit --testsuite integration",
+        "analyse": "phpstan analyse",
+        "coverage": "phpunit --coverage-clover build/clover.xml",
+        "coverage:gate": [
+            "@coverage",
+            "@php ../../scripts/php-coverage-gate.php build/clover.xml 90"
+        ]
+    },
+    "scripts-descriptions": {
+        "test": "Run the unit suite (deterministic, no live backends).",
+        "test:integration": "Run the live-Redis lane; needs ext-redis + a Redis (see scripts/php-redis-it.sh).",
+        "analyse": "PHPStan level max.",
+        "coverage": "Write a Clover report to build/clover.xml (needs a coverage driver, e.g. PCOV).",
+        "coverage:gate": "Measure coverage and enforce the floor, excluding the Redis driver."
     },
     "config": {
         "sort-packages": true

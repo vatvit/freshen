@@ -34,6 +34,10 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
         if ($precomputeSec < 0 || $precomputeSec > $hardTtlSec) {
             throw new \InvalidArgumentException('precomputeSec must be in [0, hardTtlSec]');
         }
+
+        // Guarantee the deterministic-TTL + exact-clear behaviour regardless of how the
+        // pool was built: Freshen\Item is required, so wire it here rather than trust the host.
+        $this->pool->setItemClass(Item::class);
     }
 
     public function get(KeyInterface $key): ValueResultInterface
@@ -174,7 +178,11 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
     private function save(KeyInterface $key, mixed $value): void
     {
         $item = $this->pool->getItem($key->toString());
-        // Stash TTL is hard TTL; add jitter if configured
+        // Stash TTL is hard TTL; add jitter if configured.
+        // NOTE: Stash's Item::executeSet subtracts a further random 0..15% from
+        // this TTL on save, so the *stored* expiry is not deterministic despite
+        // DefaultJitter being deterministic. There is no supported way to disable
+        // that in stock Stash. See https://github.com/tedious/Stash/issues/419
         $hardTtl = $this->jitter?->apply($this->hardTtlSec, $key) ?? $this->hardTtlSec;
 
         // PSR-6: store raw value; Stash keeps creation/expiration internally
@@ -188,7 +196,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
         foreach (is_array($selectors) ? $selectors : [$selectors] as $selector) {
             if ($mode === SyncMode::ASYNC) {
                 $this->dispatch(new AsyncEvent($selector, false));
-                return;
+                continue;
             }
 
             $this->pool->getDriver()->clear($selector);
@@ -201,7 +209,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
         foreach (is_array($keys) ? $keys : [$keys] as $key) {
             if ($mode === SyncMode::ASYNC) {
                 $this->dispatch(new AsyncEvent($key, true));
-                return;
+                continue;
             }
 
             $this->pool->getDriver()->clear($key, true);
@@ -214,7 +222,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
         foreach (is_array($keys) ? $keys : [$keys] as $key) {
             if ($mode === SyncMode::ASYNC) {
                 $this->dispatch(new AsyncEvent($key));
-                return;
+                continue;
             }
 
             $this->put($key, $this->loader->resolve($key));

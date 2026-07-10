@@ -7,6 +7,14 @@ namespace Freshen;
 use Freshen\Interface\JitterInterface;
 use Freshen\Interface\KeyInterface;
 
+/**
+ * Deterministic per-key TTL jitter (same key => same TTL), symmetric in [-delta, +delta].
+ *
+ * Caveat when used behind Stash: Stash's Item::executeSet applies its own
+ * *random* 0..15% TTL reduction on save, on top of this deterministic value, so
+ * the effective stored TTL is not deterministic. Stash has no supported switch to
+ * disable that. See https://github.com/tedious/Stash/issues/419 (and /issues/305).
+ */
 final class DefaultJitter implements JitterInterface
 {
     public function __construct(private int $percent = 15)
