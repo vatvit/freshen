@@ -40,6 +40,21 @@ jobs:
       - run: composer update --prefer-dist --no-progress
       - run: composer analyse
 
+  # Coverage floor gate (REQUIREMENTS §4: tracked, no regression) — mirrors core.
+  # The extension builds service *definitions*, so the unit suite covers it in full;
+  # nothing is excluded (the live-Redis lane is a separate belt-and-braces check).
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+      - run: composer update --prefer-dist --no-progress
+      - run: vendor/bin/phpunit --coverage-clover build/clover.xml
+      - run: php ../../scripts/php-coverage-gate.php build/clover.xml 90 ''
+
   # Live-Redis lane: compile the bundle's container against a real Redis and prove the
   # cold-key fill + async invalidate-via-dispatcher path end-to-end (ext-redis).
   integration:
