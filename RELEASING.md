@@ -55,8 +55,26 @@ unreleased work."
    ```
 6. The `php-v1.2.0` tag triggers `release-php.yml`, which publishes `packages/php`
    (source) to the Packagist mirror repo. Packagist exposes it as `vatvit/freshen`
-   `1.2.0`. (The mirror publishes on the tag only — see [FRSH-021]; do not push an
-   installable default branch there or Packagist grows a `dev-main` version.)
+   `1.2.0`.
+
+## Publishing (shared workflow)
+
+Every package publishes through **one reusable workflow**,
+`.github/workflows/publish-package.yml` — `release-<pkg>.yml` is just a thin caller that
+passes `package_dir` / `composer_name` / `mirror_repo`. The shared workflow:
+
+- **Injects monorepo metadata** into the published `composer.json` — `homepage` +
+  `support.{issues,source}` point at this monorepo (`.../tree/main/<package_dir>`), not
+  the mirror repo Packagist watches, so the Packagist page links home (FRSH-028).
+- **Publishes on the tag only** — never an installable default branch, so Packagist
+  surfaces no `dev-*` version (FRSH-021).
+- **Syncs the mirror README** — the package README onto the mirror's default branch,
+  README-only, using the shared banner `.github/mirror/banner.md.tmpl` with relative
+  links rewritten to absolute monorepo URLs (FRSH-027).
+
+**Adding a package:** create its mirror repo (default branch = a `composer.json`-free
+placeholder), register it on Packagist, then add a `release-<pkg>.yml` caller. No
+per-package publish logic, banner, or `composer.json` metadata to maintain.
 
 ## TS release
 
