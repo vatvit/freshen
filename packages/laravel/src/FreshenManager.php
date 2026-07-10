@@ -119,15 +119,6 @@ class FreshenManager
         return array_keys($caches);
     }
 
-    /** The cache name aliased to Freshen\Cache. */
-    public function defaultName(): string
-    {
-        /** @var string $default */
-        $default = $this->config['default'] ?? 'default';
-
-        return $default;
-    }
-
     /** Shared Stash pool for a Laravel redis connection, reusing its phpredis client. */
     private function pool(string $connection): Pool
     {

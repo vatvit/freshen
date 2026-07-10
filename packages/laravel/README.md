@@ -3,8 +3,8 @@
 `vatvit/freshen-laravel` is the drop-in Laravel package for
 [Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
 stampede prevention. It wires the manual pool/loader/listener setup from the core README
-into a service provider + config file: `composer require`, publish the config, and
-resolve autowired `Freshen\Cache` instances with async invalidation already on the queue.
+into a service provider + config file: `composer require`, publish the config, define one
+cache per dataset, and resolve them by name — with async invalidation already on the queue.
 
 ## Install
 
@@ -20,21 +20,21 @@ php artisan vendor:publish --tag=freshen-config
 
 ## Configure
 
-`Freshen\Cache` is **per-dataset** — each cache binds one loader + TTL — so you declare
-**named caches** in `config/freshen.php`. Each references a loader (yours, implementing
-`Freshen\Interface\LoaderInterface`) resolved from the container, and a Laravel **redis
-connection name** whose phpredis client Freshen reuses.
+A Freshen cache is **one dataset** — its own loader + TTLs — so a real app defines **one
+cache per data structure** (top sellers, prices, categories, …). You declare each under
+`caches` in `config/freshen.php`, keyed by the name you'll resolve it with. Each references
+a loader (yours, implementing `Freshen\Interface\LoaderInterface`) resolved from the
+container, and a Laravel **redis connection name** whose phpredis client Freshen reuses.
 
 ```php
 // config/freshen.php
 return [
-    'default' => 'top_sellers',          // cache aliased to Freshen\Cache (and `freshen`)
-
     'queue' => [
         'connection' => env('FRESHEN_QUEUE_CONNECTION'), // null = default; 'sync' = inline
         'queue' => env('FRESHEN_QUEUE'),                 // null = default queue name
     ],
 
+    // one entry per dataset — the key is the name you pass to Freshen::cache('<name>')
     'caches' => [
         'top_sellers' => [
             'loader' => App\Cache\TopSellersLoader::class, // required — LoaderInterface
@@ -45,6 +45,11 @@ return [
             'connection' => 'default',                     // Laravel redis connection name
             // 'metrics' => App\Cache\Metrics::class,      // optional — MetricsInterface
         ],
+        'prices' => [
+            'loader' => App\Cache\PricesLoader::class,
+            'hard_ttl' => 600,
+            'precompute' => 30,
+        ],
     ],
 ];
 ```
@@ -54,21 +59,32 @@ second connection is opened. Use the phpredis client (`'client' => 'phpredis'`).
 
 ## Use
 
-With the default cache configured, inject `Freshen\Cache` directly:
+Resolve a cache **by name** with the `Freshen` facade — there is no "default" cache, since
+each one is a distinct dataset:
 
 ```php
-public function __construct(private \Freshen\Cache $cache) {}
+use Freshen\Bridge\Laravel\Facades\Freshen;
+use Freshen\Key;
 
-$result = $this->cache->get(new \Freshen\Key('product', 'detail', $id));
-$result->value();                 // the loader's value (fresh or stale-while-revalidate)
-$this->cache->invalidate($key);   // async by default — see below
+$key    = new Key('product', 'detail', $id);
+$result = Freshen::cache('top_sellers')->get($key);
+$result->value();                             // fresh or stale-while-revalidate value
+
+Freshen::cache('top_sellers')->invalidate($key);   // async by default — see below
 ```
 
-Additional caches are bound as `freshen.cache.<name>`:
+Prefer constructor injection? Inject the manager and pick the dataset:
 
 ```php
-$prices = app('freshen.cache.prices');
+use Freshen\Bridge\Laravel\FreshenManager;
+
+public function __construct(private FreshenManager $freshen) {}
+
+$this->freshen->cache('prices')->get($key);
 ```
+
+(Injecting a bare `Freshen\Cache` is intentionally **not** supported — with many datasets
+it would be ambiguous which one you mean.)
 
 ## Async invalidation (queue)
 
