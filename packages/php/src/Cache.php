@@ -195,7 +195,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
     {
         foreach (is_array($selectors) ? $selectors : [$selectors] as $selector) {
             if ($mode === SyncMode::ASYNC) {
-                $this->dispatch(new AsyncEvent($selector, false));
+                $this->dispatch(new InvalidateEvent($selector));
                 continue;
             }
 
@@ -208,7 +208,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
     {
         foreach (is_array($keys) ? $keys : [$keys] as $key) {
             if ($mode === SyncMode::ASYNC) {
-                $this->dispatch(new AsyncEvent($key, true));
+                $this->dispatch(new InvalidateExactEvent($key));
                 continue;
             }
 
@@ -221,7 +221,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
     {
         foreach (is_array($keys) ? $keys : [$keys] as $key) {
             if ($mode === SyncMode::ASYNC) {
-                $this->dispatch(new AsyncEvent($key));
+                $this->dispatch(new RefreshEvent($key));
                 continue;
             }
 
