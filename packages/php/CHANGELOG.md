@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+### Changed
+- **BREAKING:** renamed the Stash enhancement classes for a cleaner public API —
+  `Freshen\MyRedisDriver` → `Freshen\Driver\Redis`, `Freshen\MyItem` → `Freshen\Item`.
+- `Cache` now wires `Freshen\Item` onto the pool itself (`setItemClass`), so deterministic
+  TTLs and exact delete no longer require the host to configure the item class.
+
+### Fixed
+- `Freshen\Driver\Redis` now actually reuses an injected client
+  (`new Freshen\Driver\Redis(['connection' => $redis])`); it previously fell through to
+  `parent::setOptions()`, which overwrote the client with a fresh localhost connection.
+- Deterministic TTL: `Freshen\Item` overrides Stash's `executeSet()` to drop Stash's random
+  0–15% TTL reduction, so a given key stores an identical TTL every time
+  ([Stash #419](https://github.com/tedious/Stash/issues/419)).
+- ASYNC `invalidate()` / `invalidateExact()` / `refresh()` now dispatch **every** element of a
+  list selector, not just the first.
 
 ## [1.0.0-rc.1] - 2026-07-09
 ### Added

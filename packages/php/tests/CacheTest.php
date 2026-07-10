@@ -291,6 +291,21 @@ final class CacheTest extends TestCase
             ->invalidateExact($selector, SyncMode::SYNC);
     }
 
+    public function testAsyncInvalidateDispatchesEveryListElement(): void
+    {
+        $loader = $this->createMock(LoaderInterface::class);
+        $jitter = $this->createMock(JitterInterface::class);
+        $pool = $this->createMock(StashPoolInterface::class);
+        $dispatcher = $this->createMock(EventDispatcherInterface::class);
+
+        // A list selector must dispatch one event PER element — regression for the
+        // old `return` (dispatched only the first). See FRSH-010 / FRSH-008.
+        $dispatcher->expects($this->exactly(2))->method('dispatch');
+
+        (new Cache($pool, $loader, 600, 60, $jitter, $dispatcher))
+            ->invalidate([$this->newKey('a'), $this->newKey('b')], SyncMode::ASYNC);
+    }
+
     public function testRefreshSyncLoadsAndPuts(): void
     {
         $pool = $this->createMock(StashPoolInterface::class);
