@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Freshen\Tests;
 
 use Freshen\Cache;
+use Freshen\InvalidateEvent;
+use Freshen\InvalidateExactEvent;
+use Freshen\RefreshEvent;
 use Freshen\Interface\KeyInterface;
+use Freshen\Interface\KeyPrefixInterface;
 use Freshen\Interface\LoaderInterface;
 use Freshen\Interface\JitterInterface;
 use Freshen\Interface\MetricsInterface;
@@ -282,12 +286,16 @@ final class CacheTest extends TestCase
         $metrics = $this->createMock(MetricsInterface::class);
         $selector = $this->newKey('sel');
 
-        // ASYNC invalidate should dispatch and not touch the driver
+        // ASYNC invalidate should dispatch an InvalidateEvent (carrying the selector)
+        // and not touch the driver.
         $driverA = $this->createMock(StashDriverInterface::class);
         $poolA = $this->newPool();
         $poolA->method('getDriver')->willReturn($driverA);
         $dispatcherA = $this->createMock(EventDispatcherInterface::class);
-        $dispatcherA->expects($this->once())->method('dispatch')->with($this->anything());
+        $dispatcherA->expects($this->once())->method('dispatch')
+            ->with($this->callback(
+                fn (object $e): bool => $e instanceof InvalidateEvent && $e->key === $selector,
+            ));
         $driverA->expects($this->never())->method('clear');
         (new Cache($poolA, $loader, 600, 60, $jitter, $dispatcherA, $metrics))
             ->invalidate($selector, SyncMode::ASYNC);
@@ -307,6 +315,52 @@ final class CacheTest extends TestCase
         $driverC->expects($this->once())->method('clear')->with($selector, true);
         (new Cache($poolC, $loader, 600, 60, $jitter, null, $metrics))
             ->invalidateExact($selector, SyncMode::SYNC);
+    }
+
+    public function testAsyncInvalidateAcceptsAKeyPrefixSelector(): void
+    {
+        // Regression (FRSH-008 → FRSH-013): invalidate() accepts a KeyPrefixInterface,
+        // and the ASYNC path must dispatch it without a TypeError. Before the event
+        // redesign, AsyncEvent only accepted KeyInterface, so this threw.
+        $prefix = $this->createMock(KeyPrefixInterface::class);
+        $prefix->method('toString')->willReturn('domain/facet');
+
+        $dispatcher = $this->createMock(EventDispatcherInterface::class);
+        $dispatcher->expects($this->once())->method('dispatch')
+            ->with($this->callback(
+                fn (object $e): bool => $e instanceof InvalidateEvent && $e->key === $prefix,
+            ));
+
+        (new Cache($this->newPool(), $this->newLoader(), 600, 60, $this->newJitter(), $dispatcher))
+            ->invalidate($prefix, SyncMode::ASYNC);
+    }
+
+    public function testAsyncInvalidateExactDispatchesInvalidateExactEvent(): void
+    {
+        $key = $this->newKey('exact');
+        $dispatcher = $this->createMock(EventDispatcherInterface::class);
+        $dispatcher->expects($this->once())->method('dispatch')
+            ->with($this->callback(
+                fn (object $e): bool => $e instanceof InvalidateExactEvent && $e->key === $key,
+            ));
+
+        (new Cache($this->newPool(), $this->newLoader(), 600, 60, $this->newJitter(), $dispatcher))
+            ->invalidateExact($key, SyncMode::ASYNC);
+    }
+
+    public function testAsyncRefreshDispatchesRefreshEvent(): void
+    {
+        $key = $this->newKey('refresh');
+        $loader = $this->newLoader();
+        $loader->expects($this->never())->method('resolve'); // async: no inline compute
+        $dispatcher = $this->createMock(EventDispatcherInterface::class);
+        $dispatcher->expects($this->once())->method('dispatch')
+            ->with($this->callback(
+                fn (object $e): bool => $e instanceof RefreshEvent && $e->key === $key,
+            ));
+
+        (new Cache($this->newPool(), $loader, 600, 60, $this->newJitter(), $dispatcher))
+            ->refresh($key, SyncMode::ASYNC);
     }
 
     public function testAsyncInvalidateDispatchesEveryListElement(): void

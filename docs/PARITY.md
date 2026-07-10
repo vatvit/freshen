@@ -331,18 +331,27 @@ the core paths above.
 
 Async invalidation/refresh decouples the request path from backend work:
 
-1. The mutating method emits a single **event** carrying the selector and a flag
-   distinguishing *exact* from *hierarchical* (refresh reuses the same event
-   shape). Fields: `key` (the selector), `exact: bool`.
-2. A **handler** subscribed to that event performs the equivalent **SYNC**
-   operation: `handleInvalidation` routes to `invalidateExact` (when `exact`) or
-   `invalidate` (hierarchical); `handleRefresh` routes to `refresh`.
+1. Each mutating operation emits a **distinct event type** carrying the selector,
+   so the operation is identified by the **event's type**, not by an internal
+   flag: `Invalidate` (hierarchical), `InvalidateExact` (exact), and `Refresh`.
+   The hierarchical `Invalidate` event's selector is a `KeyPrefix` **or** a `Key`;
+   the `InvalidateExact` and `Refresh` events carry a `Key`. There is **no**
+   `op`/`exact` discriminator field — the type *is* the discriminator.
+2. A **handler** subscribed per event type performs the equivalent **SYNC**
+   operation: the `Invalidate` event routes to `invalidate` (hierarchical), the
+   `InvalidateExact` event to `invalidateExact`, and the `Refresh` event to
+   `refresh`. The handler routes **from the event alone**, with no external
+   context, so a single dispatcher can serve all three operations unambiguously —
+   including a `refresh` and an `invalidate` on the *same* key.
 3. Async mode **requires** an event dispatcher. If a mutating method is called with
    `mode = ASYNC` and no dispatcher was configured, it **MUST** raise a
    *logic/illegal-state* error (it MUST NOT silently no-op).
 
-The wiring of events→handlers (which handler a given event triggers) is a
-deployment concern of the host application, not of the library.
+The distinct **op set** (`invalidate` / `invalidate-exact` / `refresh`) and its
+routing to the matching sync operation are contract; the concrete *type/class
+names* used to represent each op are host-specific ([§13](#13-what-is-not-contract)).
+The wiring of events→handlers (registering which handler a given event triggers) is
+a deployment concern of the host application, not of the library.
 
 ---
 
@@ -395,6 +404,11 @@ languages/versions without breaking parity:
 - **Concrete exception/error class identity** — the *category* (invalid-argument,
   runtime "no value on miss", logic "async without dispatcher") is contract; the
   exact type name is the host's.
+- **Concrete async-event type/class names** ([§11](#11-async-model)) — the *op set*
+  (`invalidate` / `invalidate-exact` / `refresh`), each op's selector type, and its
+  routing to the matching sync operation are contract; the names/shape a host uses
+  to represent each op (PHP: `InvalidateEvent`/`InvalidateExactEvent`/`RefreshEvent`)
+  are not.
 - **The `asPool` escape hatch** and any host-specific backend accessor.
 - **Reversibility/exact bytes of a custom `idString` scheme** when a consumer
   overrides the default hook — the *default* scheme ([§6](#6-key-model)) IS parity.
@@ -434,8 +448,11 @@ How the reference package realises the contract — useful when reading
   `Freshen\Item` overrides `executeSet` to drop that random block, so the stored expiry is
   deterministic (same key ⇒ same TTL, per [§9](#9-jitter)). A port with no Stash beneath it
   implements only the single deterministic jitter of §9.
-- **Events:** PSR-14 `EventDispatcherInterface`; `AsyncEvent{key, exact}` +
-  `AsyncHandler{handleInvalidation, handleRefresh}`.
+- **Events:** PSR-14 `EventDispatcherInterface`; one event class per op — an
+  abstract `AsyncEvent` base with `InvalidateEvent{key: KeyPrefix|Key}`,
+  `InvalidateExactEvent{key: Key}`, `RefreshEvent{key: Key}` — routed by
+  `AsyncHandler{handleInvalidation, handleInvalidateExact, handleRefresh}` via
+  class-based PSR-14 listeners.
 - **Types:** `CacheReadState`/`SyncMode` are native enums; `ValueResult` is
   immutable with `hit`/`stale`/`miss` factories; `Key` implements `Stringable`.
 - **Errors:** `InvalidArgumentException` (config/empty segment), `RuntimeException`

@@ -83,14 +83,19 @@ $cache->refresh($key, SyncMode::SYNC);           // recompute now via the loader
 ### 4. Invalidate & refresh (asynchronous)
 
 Invalidation and refresh default to `SyncMode::ASYNC`: instead of touching the
-backend inline they emit a `Freshen\AsyncEvent` through a
+backend inline they emit a per-operation event through a
 [PSR-14](https://www.php-fig.org/psr/psr-14/) event dispatcher, and a subscribed
-`Freshen\AsyncHandler` performs the equivalent synchronous operation later. Pass the
-dispatcher to the constructor:
+`Freshen\AsyncHandler` performs the equivalent synchronous operation later. Each
+operation has its own event class — `Freshen\InvalidateEvent`,
+`Freshen\InvalidateExactEvent`, `Freshen\RefreshEvent` (all extend the abstract
+`Freshen\AsyncEvent`) — so your listener provider routes each op to the right
+handler by event class alone. Pass the dispatcher to the constructor:
 
 ```php
-use Freshen\AsyncEvent;
 use Freshen\AsyncHandler;
+use Freshen\InvalidateEvent;
+use Freshen\InvalidateExactEvent;
+use Freshen\RefreshEvent;
 
 // $dispatcher is your PSR-14 EventDispatcherInterface (Symfony, League, …).
 $cache = new Cache(
@@ -99,12 +104,15 @@ $cache = new Cache(
     eventDispatcher: $dispatcher,
 );
 
-// In your app's event wiring, route AsyncEvent to the handler:
+// In your app's event wiring, route each event class to its handler method:
 $handler = new AsyncHandler($cache);
-// $dispatcher->subscribe(AsyncEvent::class, $handler->handleInvalidation(...));
+// $provider->addListener(InvalidateEvent::class,      [$handler, 'handleInvalidation']);
+// $provider->addListener(InvalidateExactEvent::class, [$handler, 'handleInvalidateExact']);
+// $provider->addListener(RefreshEvent::class,         [$handler, 'handleRefresh']);
 
-$cache->invalidate($key);        // async (default): dispatched, then applied by the handler
-$cache->invalidateExact($key);   // async (default)
+$cache->invalidate($key);        // async (default): dispatches InvalidateEvent
+$cache->invalidateExact($key);   // async (default): dispatches InvalidateExactEvent
+$cache->refresh($key);           // async (default): dispatches RefreshEvent
 ```
 
 Calling an async operation when no dispatcher was configured throws a
