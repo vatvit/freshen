@@ -7,14 +7,15 @@ declare(strict_types=1);
  *
  * Publish with:  php artisan vendor:publish --tag=freshen-config
  *
- * Each entry under `caches` builds one Freshen\Cache (its own loader + TTLs). The
- * cache named by `default` is aliased to Freshen\Cache for plain constructor injection;
- * every cache is also bound by its service id `freshen.cache.<name>`.
+ * A Freshen cache is one **dataset** (its own loader + TTLs), so you define **one entry
+ * per data structure** under `caches` — a real app has several. Resolve each by name:
+ *
+ *     use Freshen\Bridge\Laravel\Facades\Freshen;
+ *     Freshen::cache('top_sellers')->get($key);
+ *
+ * There is no "default" cache — you always name the dataset you want.
  */
 return [
-    // Name of the cache aliased to Freshen\Cache (and resolvable as `freshen`).
-    'default' => 'default',
-
     // Async invalidation/refresh are dispatched onto Laravel's queue (their handlers
     // run on a worker, off the request). Set connection to 'sync' to run inline.
     'queue' => [
@@ -22,16 +23,17 @@ return [
         'queue' => env('FRESHEN_QUEUE'),                 // null = default queue name
     ],
 
+    // One entry per dataset. Keys are the names you pass to Freshen::cache('<name>').
     'caches' => [
-        'default' => [
+        'top_sellers' => [
             // Required: a container id / class implementing Freshen\Interface\LoaderInterface.
-            'loader' => null,
+            'loader' => App\Cache\TopSellersLoader::class,
 
             // Hard TTL in seconds (>= 1).
             'hard_ttl' => 3600,
 
             // Seconds before the hard TTL to precompute (soft window); 0..hard_ttl.
-            'precompute' => 0,
+            'precompute' => 60,
 
             // TTL jitter percent.
             'jitter' => 15,
@@ -44,6 +46,14 @@ return [
 
             // Optional: a container id / class implementing Freshen\Interface\MetricsInterface.
             'metrics' => null,
+        ],
+
+        // A second dataset — its own loader, TTLs and (optionally) redis connection.
+        'prices' => [
+            'loader' => App\Cache\PricesLoader::class,
+            'hard_ttl' => 600,
+            'precompute' => 30,
+            'connection' => 'default',
         ],
     ],
 ];

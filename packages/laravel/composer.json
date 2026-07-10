@@ -33,7 +33,10 @@
         "laravel": {
             "providers": [
                 "Freshen\\Bridge\\Laravel\\FreshenServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Freshen": "Freshen\\Bridge\\Laravel\\Facades\\Freshen"
+            }
         }
     },
     "scripts": {

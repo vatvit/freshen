@@ -10,9 +10,10 @@ Releases are tagged `laravel-vX.Y.Z` in the monorepo.
 ### Added
 - Initial Laravel bridge (`Freshen\Bridge\Laravel\FreshenServiceProvider`, auto-discovered):
   declarative **named-cache** config (`config/freshen.php`) building one `Freshen\Cache`
-  each (Laravel's phpredis client → `Freshen\Driver\Redis` → `Cache`), with the default
-  cache aliased to `Freshen\Cache` and `freshen`, and every cache bound as
-  `freshen.cache.<name>` (FRSH-024).
+  per dataset (Laravel's phpredis client → `Freshen\Driver\Redis` → `Cache`), resolved by
+  name through the auto-registered **`Freshen` facade** — `Freshen::cache('top_sellers')`,
+  the idiomatic manager+facade pattern (cf. `Cache::store()`) (FRSH-024). A cache is one
+  dataset, so there is **no "default" cache** and no bare `Freshen\Cache` binding.
 - Async invalidation/refresh via a **PSR-14 dispatcher adapter over Laravel's queue**
   (`QueueDispatcher` → `ProcessFreshenAsyncEvent` job → `Freshen\AsyncHandler`), so
   invalidation runs on a worker off the request; a `sync` queue connection runs it inline.

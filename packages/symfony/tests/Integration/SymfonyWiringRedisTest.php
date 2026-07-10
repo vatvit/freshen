@@ -48,7 +48,7 @@ final class SymfonyWiringRedisTest extends TestCase
         $this->container = $this->buildContainer($host, $port);
 
         $this->redis = $this->container->get('Redis');
-        $this->cache = $this->container->get(Cache::class);
+        $this->cache = $this->container->get('freshen.cache.it');
         $this->loader = $this->container->get('test.loader');
     }
 
@@ -75,6 +75,10 @@ final class SymfonyWiringRedisTest extends TestCase
                 'it' => ['loader' => 'test.loader', 'hard_ttl' => 3600, 'precompute' => 0, 'jitter' => 0],
             ],
         ]], $container);
+
+        // The cache service is private (injected by name in real apps); make it public
+        // here so the test can fetch it via get().
+        $container->getDefinition('freshen.cache.it')->setPublic(true);
 
         // Attach the `kernel.event_listener`-tagged AsyncHandler to the dispatcher,
         // exactly as FrameworkBundle would.

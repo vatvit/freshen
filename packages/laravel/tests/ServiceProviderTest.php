@@ -4,15 +4,16 @@ declare(strict_types=1);
 
 namespace Freshen\Bridge\Laravel\Tests;
 
+use Freshen\Bridge\Laravel\Facades\Freshen;
 use Freshen\Bridge\Laravel\FreshenManager;
-use Freshen\Cache;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * The provider registers the manager, one binding per configured cache, and aliases
- * the default cache to Freshen\Cache + `freshen` — asserted on the container bindings
- * without resolving them (resolving would need a live redis; that is the integration
- * lane). Also checks config merge + the publish group.
+ * The provider registers the manager singleton, publishes the config, and wires the
+ * `Freshen` facade to the manager. Caches are resolved by name through the manager /
+ * facade — there is no "default" cache and no bare Freshen\Cache binding (a cache is one
+ * dataset; a project has many). Asserted without resolving a cache (that needs live redis
+ * — the integration lane).
  */
 final class ServiceProviderTest extends TestCase
 {
@@ -22,7 +23,6 @@ final class ServiceProviderTest extends TestCase
     protected function defineEnvironment($app): void
     {
         $app->make('config')->set('freshen', [
-            'default' => 'top_sellers',
             'queue' => ['connection' => null, 'queue' => null],
             'caches' => [
                 'top_sellers' => ['loader' => CountingLoader::class, 'hard_ttl' => 3600],
@@ -39,21 +39,19 @@ final class ServiceProviderTest extends TestCase
         self::assertInstanceOf(FreshenManager::class, $a);
         self::assertSame($a, $b);
         self::assertSame(['top_sellers', 'prices'], $a->names());
-        self::assertSame('top_sellers', $a->defaultName());
     }
 
-    public function testOneBindingPerConfiguredCache(): void
+    public function testFacadeResolvesToTheManager(): void
     {
-        self::assertTrue($this->app->bound('freshen.cache.top_sellers'));
-        self::assertTrue($this->app->bound('freshen.cache.prices'));
+        self::assertInstanceOf(FreshenManager::class, Freshen::getFacadeRoot());
+        self::assertSame(['top_sellers', 'prices'], Freshen::names());
     }
 
-    public function testDefaultCacheIsAliasedToFreshenCacheAndFreshen(): void
+    public function testNoDefaultCacheOrBareBinding(): void
     {
-        self::assertTrue($this->app->bound(Cache::class));
-        self::assertTrue($this->app->bound('freshen'));
-        // `freshen` and Freshen\Cache resolve to the same (default) binding.
-        self::assertSame(Cache::class, $this->app->getAlias('freshen'));
+        // A Freshen cache is one dataset — nothing is bound to the bare Freshen\Cache type.
+        self::assertFalse($this->app->bound(\Freshen\Cache::class));
+        self::assertFalse($this->app->bound('freshen'));
     }
 
     public function testConfigPublishGroupIsRegistered(): void

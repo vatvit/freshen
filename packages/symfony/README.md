@@ -3,8 +3,9 @@
 `vatvit/freshen-symfony` is the drop-in Symfony bundle for
 [Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
 stampede prevention. It wires the manual pool/loader/listener setup from the core
-README into declarative config: `composer require` + a little YAML gives you autowired
-`Freshen\Cache` instances with async invalidation already registered.
+README into declarative config: `composer require` + a little YAML gives you one autowired,
+per-dataset `Freshen\Cache` per data structure, injected by name, with async invalidation
+already registered.
 
 ## Install
 
@@ -28,10 +29,13 @@ return [
 **named caches**. Each references a loader service (yours, implementing
 `Freshen\Interface\LoaderInterface`) and a `\Redis` client service.
 
+A Freshen cache is **one dataset**, so you define **one entry per data structure** (top
+sellers, prices, …) — a real app has several:
+
 ```yaml
 # config/packages/freshen.yaml
 freshen:
-    connection: Redis                 # default \Redis client service id (optional if each cache sets its own)
+    connection: Redis                 # shared \Redis client service id (optional if each cache sets its own)
     caches:
         top_sellers:
             loader: App\Cache\TopSellersLoader   # required — Freshen\Interface\LoaderInterface service
@@ -41,6 +45,10 @@ freshen:
             fail_open: true                       # default true
             # connection: Redis                   # optional per-cache override
             # metrics: App\Cache\Metrics          # optional — Freshen\Interface\MetricsInterface service
+        prices:                                   # a second dataset — its own loader + TTLs
+            loader: App\Cache\PricesLoader
+            hard_ttl: 600
+            precompute: 30
 ```
 
 The `connection` value is a **service id** for a connected `\Redis` client. Bring your
@@ -57,24 +65,21 @@ services:
 
 ## Use
 
-With **one** cache configured, inject `Freshen\Cache` directly:
-
-```php
-public function __construct(private \Freshen\Cache $cache) {}
-
-$result = $this->cache->get(new \Freshen\Key('product', 'detail', $id));
-$result->value();      // the loader's value (fresh or stale-while-revalidate)
-$this->cache->invalidate($key);   // async by default — see below
-```
-
-With **several** caches, use named-argument autowiring — the argument name is the
-camel-cased cache name plus `Cache`:
+Inject each cache **by name** with named-argument autowiring — the argument name is the
+camel-cased cache name plus `Cache`. This is how you reference a dataset whether you have
+one cache or many (there is no bare `Freshen\Cache` "default" — with several datasets it
+would be ambiguous, and it would silently break the day you add the second one):
 
 ```php
 public function __construct(
     private \Freshen\Cache $topSellersCache,   // freshen.caches.top_sellers
     private \Freshen\Cache $pricesCache,       // freshen.caches.prices
 ) {}
+
+$key    = new \Freshen\Key('product', 'detail', $id);
+$result = $this->topSellersCache->get($key);
+$result->value();                          // fresh or stale-while-revalidate value
+$this->topSellersCache->invalidate($key);  // async by default — see below
 ```
 
 ## Async invalidation

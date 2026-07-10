@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Freshen\Bridge\Laravel\Tests\Integration;
 
+use Freshen\Bridge\Laravel\Facades\Freshen;
 use Freshen\Bridge\Laravel\Tests\CountingLoader;
 use Freshen\Bridge\Laravel\Tests\TestCase;
-use Freshen\Cache;
 use Freshen\Key;
 
 /**
@@ -64,7 +64,6 @@ final class LaravelWiringRedisTest extends TestCase
         $config->set('queue.default', 'sync');
 
         $config->set('freshen', [
-            'default' => 'it',
             'queue' => ['connection' => null, 'queue' => null],
             'caches' => [
                 'it' => [
@@ -83,8 +82,7 @@ final class LaravelWiringRedisTest extends TestCase
 
     public function testColdFillThenAsyncInvalidateDropsEntry(): void
     {
-        /** @var Cache $cache */
-        $cache = $this->app->make(Cache::class);
+        $cache = Freshen::cache('it');
         $key = new Key('product', 'detail', 7);
 
         // 1) cold key → fill via loader.

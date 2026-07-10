@@ -10,8 +10,10 @@ Releases are tagged `symfony-vX.Y.Z` in the monorepo.
 ### Added
 - Initial Symfony bundle (`Freshen\Bridge\Symfony\FreshenBundle`): declarative
   **named-cache** config (`freshen.caches.<name>`) building one `Freshen\Cache` service
-  each (pool → `Freshen\Driver\Redis` → `Cache`), with a single cache aliased to
-  `Freshen\Cache` and multiple exposed via named-argument autowiring (FRSH-023).
+  per dataset (pool → `Freshen\Driver\Redis` → `Cache`), each injected **by name** via
+  named-argument autowiring — `Freshen\Cache $topSellersCache` — for one or many caches
+  alike (FRSH-023). A cache is one dataset, so there is **no bare `Freshen\Cache`
+  "default"** alias (it would be ambiguous, and break on adding a second dataset).
 - Async invalidation wired out of the box: each cache's `Freshen\AsyncHandler` is
   registered on Symfony's PSR-14 `event_dispatcher` for the three event classes.
 - Live-Redis integration lane (`scripts/symfony-it.sh`) and CI (`ci-symfony.yml`).
