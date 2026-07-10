@@ -199,7 +199,11 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
                 continue;
             }
 
-            $this->pool->getDriver()->clear($selector);
+            // Route through the pool Item, which carries the correctly-namespaced
+            // Stash key path. Calling $driver->clear($selector) directly with a
+            // Key/prefix OBJECT is a no-op: Stash's makeKeyString()/normalizeKeys()
+            // iterate it as an array and hit the empty/root path (FRSH-019).
+            $this->item($selector)->clear();
             $this->metrics?->inc('cache_invalidate_hierarchical');
         }
     }
@@ -212,7 +216,9 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
                 continue;
             }
 
-            $this->pool->getDriver()->clear($key, true);
+            // See invalidate(): route the exact delete through the pool Item so the
+            // driver receives the real key path, not a Key object (FRSH-019).
+            $this->item($key)->clear(true);
             $this->metrics?->inc('cache_invalidate');
         }
     }
@@ -227,6 +233,20 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
 
             $this->put($key, $this->loader->resolve($key));
         }
+    }
+
+    /**
+     * Fetch the pool Item for a selector as a Freshen Item — the seam invalidation
+     * must go through so the driver receives the correctly-namespaced Stash key path
+     * (passing a Key/prefix object straight to the driver is a silent no-op; FRSH-019).
+     * getItem() always returns a Freshen\Item because the constructor pins the pool's
+     * item class; the assert narrows the PSR CacheItemInterface return for PHPStan.
+     */
+    private function item(KeyPrefixInterface|KeyInterface $selector): Item
+    {
+        $item = $this->pool->getItem($selector->toString());
+        \assert($item instanceof Item);
+        return $item;
     }
 
     private function dispatch(AsyncEvent $event): void

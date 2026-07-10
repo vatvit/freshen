@@ -69,11 +69,21 @@ final class Redis extends BaseRedis
      * This is the atomic single-flight guarantee stock Stash lacks — Item::lock()
      * otherwise does an unconditional SET and always returns true.
      * See https://github.com/tedious/Stash/issues/203
+     *
+     * $expiration is an ABSOLUTE unix timestamp — Stash's storeData() contract
+     * (the base driver uses EXAT). We convert it to a relative TTL for SET…EX and
+     * clamp the lock lifetime. Treating it as a relative TTL (the old bug) made
+     * every real Item::lock() throw, since it passes time()+stampede_ttl. FRSH-019.
      */
-    private function storeAsLock(array $key, mixed $data, int $ttl): bool
+    private function storeAsLock(array $key, mixed $data, int $expiration): bool
     {
-        if ($ttl <= 0 || $ttl > 300) {
-            throw new \InvalidArgumentException('Invalid TTL');
+        $ttl = $expiration - time();
+        if ($ttl <= 0) {
+            // Already expired — no lock to take. Report "not acquired".
+            return false;
+        }
+        if ($ttl > 300) {
+            $ttl = 300; // cap the single-flight lock lifetime so a dead leader's lock self-heals
         }
 
         $opts = ['NX', 'EX' => $ttl];

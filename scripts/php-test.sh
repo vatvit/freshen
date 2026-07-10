@@ -29,6 +29,6 @@ for v in $VERSIONS; do
     $install_composer
     composer update --no-interaction --no-progress --prefer-dist
     vendor/bin/phpunit
-    vendor/bin/phpstan analyse
+    vendor/bin/phpstan analyse --memory-limit=512M
   "
 done

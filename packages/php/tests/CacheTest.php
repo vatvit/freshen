@@ -300,19 +300,21 @@ final class CacheTest extends TestCase
         (new Cache($poolA, $loader, 600, 60, $jitter, $dispatcherA, $metrics))
             ->invalidate($selector, SyncMode::ASYNC);
 
-        // SYNC invalidate should call driver->clear (hierarchical)
-        $driverB = $this->createMock(StashDriverInterface::class);
+        // SYNC invalidate must go through the pool Item (Freshen\Item::clear()),
+        // NOT driver->clear($keyObject) — the latter is a silent no-op because Stash
+        // iterates the Key object as an array (FRSH-019). Hierarchical == clear().
+        $itemB = $this->createMock(\Freshen\Item::class);
+        $itemB->expects($this->once())->method('clear')->with();
         $poolB = $this->newPool();
-        $poolB->method('getDriver')->willReturn($driverB);
-        $driverB->expects($this->once())->method('clear')->with($selector);
+        $poolB->method('getItem')->with('sel')->willReturn($itemB);
         (new Cache($poolB, $loader, 600, 60, $jitter, null, $metrics))
             ->invalidate($selector, SyncMode::SYNC);
 
-        // invalidateExact SYNC should call clear with the exact flag
-        $driverC = $this->createMock(StashDriverInterface::class);
+        // invalidateExact SYNC must call Freshen\Item::clear(true) (exact delete).
+        $itemC = $this->createMock(\Freshen\Item::class);
+        $itemC->expects($this->once())->method('clear')->with(true);
         $poolC = $this->newPool();
-        $poolC->method('getDriver')->willReturn($driverC);
-        $driverC->expects($this->once())->method('clear')->with($selector, true);
+        $poolC->method('getItem')->with('sel')->willReturn($itemC);
         (new Cache($poolC, $loader, 600, 60, $jitter, null, $metrics))
             ->invalidateExact($selector, SyncMode::SYNC);
     }

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+### Fixed
+- **`Cache::get()` on an uncached key no longer throws `Invalid TTL`.** The
+  single-flight lock (`Stash\Item::lock()`) passes an *absolute* expiration, but
+  `Freshen\Driver\Redis::storeAsLock()` treated it as a *relative* TTL and rejected
+  anything over 300s — so the first `get()` of any cold key blew up against live
+  Redis. `storeAsLock()` now derives the TTL from the absolute expiration and clamps
+  the lock lifetime (FRSH-019).
+- **`Cache::invalidate()` / `invalidateExact()` (SYNC — and therefore ASYNC) now
+  actually delete.** They handed a `Key`/prefix *object* to the Stash driver's
+  array-oriented `clear()`, which silently cleared the empty/root path and left the
+  entry in place. Invalidation now routes through the pool `Item`, which carries the
+  correct namespaced key path (FRSH-019).
+- Added `Cache`→live-Redis integration coverage (`tests/Integration/CacheRedisTest`)
+  exercising cold-key fill and both invalidation modes end-to-end — the seam the
+  mock-based unit tests and driver-only integration tests never covered.
 
 ## [1.0.0-rc.2] - 2026-07-10
 ### Changed

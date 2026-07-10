@@ -5,9 +5,7 @@ declare(strict_types=1);
 namespace Freshen\Tests\Integration;
 
 use Freshen\Driver\Redis;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
-use PHPUnit\Framework\TestCase;
 
 /**
  * Live-Redis behavioural coverage for Freshen\Driver\Redis. Excluded from the
@@ -23,7 +21,7 @@ use PHPUnit\Framework\TestCase;
  * on a miss tripping PHPUnit's failOnWarning.
  */
 #[Group('integration')]
-final class RedisDriverTest extends TestCase
+final class RedisDriverTest extends RedisTestCase
 {
     private const DB = 5;
 
@@ -32,29 +30,10 @@ final class RedisDriverTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!extension_loaded('redis')) {
-            self::markTestSkipped('ext-redis is not loaded.');
-        }
-
-        $host = getenv('REDIS_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('REDIS_PORT') ?: '6379');
-
-        $client = new \Redis();
-        try {
-            if (!$client->connect($host, $port)) {
-                self::markTestSkipped("Could not connect to Redis at {$host}:{$port}.");
-            }
-        } catch (\RedisException $e) {
-            self::markTestSkipped("Redis unavailable at {$host}:{$port}: {$e->getMessage()}");
-        }
-
-        $client->select(self::DB);
-        $client->flushDB();
-
-        $this->client = $client;
+        $this->client = $this->connectRedis(self::DB);
         // Constructing with 'connection' exercises the injection branch and avoids the
         // parent's default localhost connect (which would fail in the test container).
-        $this->driver = new Redis(['connection' => $client]);
+        $this->driver = new Redis(['connection' => $this->client]);
     }
 
     public function testInjectedConnectionIsReusedNotOverwritten(): void
@@ -101,26 +80,32 @@ final class RedisDriverTest extends TestCase
         // 'sp'-prefixed keys route to storeAsLock() → SET NX: the first writer wins,
         // concurrent writers get false. This is the atomic single-flight stock Stash
         // lacks (Item::lock() otherwise always "wins").
-        self::assertTrue($this->driver->storeData(['sp', 'lock1'], 'x', 100), 'first NX write wins');
-        self::assertFalse($this->driver->storeData(['sp', 'lock1'], 'x', 100), 'second NX write loses');
+        //
+        // The expiration is ABSOLUTE (Stash's storeData contract; Item::lock() passes
+        // time() + stampede_ttl) — storeAsLock converts it to a relative SET…EX TTL.
+        self::assertTrue($this->driver->storeData(['sp', 'lock1'], 'x', time() + 100), 'first NX write wins');
+        self::assertFalse($this->driver->storeData(['sp', 'lock1'], 'x', time() + 100), 'second NX write loses');
     }
 
-    #[DataProvider('invalidLockTtlProvider')]
-    public function testSpKeyRejectsOutOfRangeTtl(int $ttl): void
+    public function testSpKeyWithPastExpirationTakesNoLock(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Invalid TTL');
-        $this->driver->storeData(['sp', 'badttl'], 'x', $ttl);
+        // FRSH-019: an already-expired absolute expiration means there is no lock to
+        // take — storeAsLock returns false and writes nothing (rather than throwing,
+        // the old bug that made every real Item::lock() blow up).
+        self::assertFalse($this->driver->storeData(['sp', 'expired'], 'x', time() - 5));
+        self::assertSame(0, $this->client->dbSize(), 'no lock key must be written for a past expiration');
     }
 
-    /** @return array<string, array{0:int}> */
-    public static function invalidLockTtlProvider(): array
+    public function testSpKeyClampsLockLifetimeTo300(): void
     {
-        return [
-            'zero'          => [0],
-            'negative'      => [-5],
-            'above 300 cap' => [301],
-        ];
+        // A far-future absolute expiration is clamped to a 300s lock lifetime so a
+        // crashed leader's lock self-heals. Inspect the stored key's TTL directly.
+        self::assertTrue($this->driver->storeData(['sp', 'long'], 'x', time() + 100_000));
+        $keys = $this->client->keys('*');
+        self::assertCount(1, $keys, 'exactly one lock key stored');
+        $ttl = $this->client->ttl($keys[0]);
+        self::assertGreaterThan(0, $ttl);
+        self::assertLessThanOrEqual(300, $ttl, 'lock TTL must be clamped to 300s');
     }
 
     public function testExactClearRemovesOnlyTheDirectKey(): void
