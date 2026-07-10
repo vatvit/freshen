@@ -1,0 +1,115 @@
+name: Publish package → Packagist mirror
+
+# Reusable publish workflow — ONE implementation shared by every package's
+# release-<pkg>.yml (FRSH-028). Given a package directory it:
+#   1. copies the package source and injects monorepo homepage/support into composer.json
+#      (so Packagist links point at the monorepo, not the mirror);
+#   2. publishes on the `v${ver}` TAG ONLY (never an installable default branch, so
+#      Packagist surfaces no dev-* version — FRSH-021);
+#   3. syncs the package README onto the mirror's default branch, README-only, with a
+#      shared banner and relative links rewritten to absolute monorepo URLs (FRSH-027).
+#
+# A new package needs only a thin caller (see release-php.yml) plus a mirror repo whose
+# default branch is a composer.json-free placeholder.
+
+on:
+  workflow_call:
+    inputs:
+      package_dir:
+        description: 'Path to the package in the monorepo, e.g. packages/php'
+        required: true
+        type: string
+      composer_name:
+        description: 'Packagist package name, e.g. vatvit/freshen'
+        required: true
+        type: string
+      mirror_repo:
+        description: 'owner/repo of the Packagist mirror, e.g. vatvit/freshen-php'
+        required: true
+        type: string
+    secrets:
+      MIRROR_TOKEN:
+        description: 'PAT with push access to the mirror repo'
+        required: true
+
+env:
+  MONOREPO: vatvit/freshen
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive version
+        id: v
+        # Tag is <prefix>-vX.Y.Z (php-v…, symfony-v…); strip up to and including "-v".
+        run: echo "version=${GITHUB_REF_NAME#*-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish source to mirror (tag only, monorepo metadata injected)
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${{ steps.v.outputs.version }}"
+          pkg="${{ inputs.package_dir }}"
+          work="$(mktemp -d)"
+          cp -R "$pkg/." "$work/"
+          cp LICENSE "$work/"
+          rm -rf "$work/vendor" "$work/build" "$work/.phpunit.cache" "$work/composer.lock"
+
+          # Point Packagist's homepage/issues/source at the monorepo (not the mirror repo
+          # Packagist watches). Derived from the package path — no per-package config.
+          tmp="$(mktemp)"
+          jq \
+            --arg home "https://github.com/${MONOREPO}" \
+            --arg issues "https://github.com/${MONOREPO}/issues" \
+            --arg source "https://github.com/${MONOREPO}/tree/main/${pkg}" \
+            '.homepage = $home | .support.issues = $issues | .support.source = $source' \
+            "$work/composer.json" > "$tmp"
+          mv "$tmp" "$work/composer.json"
+
+          cd "$work"
+          git init -q
+          git config user.name "freshen-release"
+          git config user.email "release@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${MIRROR_TOKEN}@github.com/${{ inputs.mirror_repo }}.git"
+          git add -A
+          git commit -q -m "Release v${ver}"
+          git tag "v${ver}"
+          git push origin "v${ver}"
+
+      - name: Sync README to mirror default branch (README-only)
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${{ steps.v.outputs.version }}"
+          pkg="${{ inputs.package_dir }}"
+          name="${{ inputs.composer_name }}"
+          work="$(mktemp -d)"
+          git clone -q --depth 1 --branch mirror \
+            "https://x-access-token:${MIRROR_TOKEN}@github.com/${{ inputs.mirror_repo }}.git" "$work"
+
+          # Shared banner (placeholders filled) + package README with ../../ relative links
+          # rewritten to absolute monorepo URLs. README-ONLY — never a composer.json here,
+          # or Packagist would surface a dev-<branch> version.
+          sed -e "s#@@PKG_DIR@@#${pkg}#g" \
+              -e "s#@@MONOREPO@@#${MONOREPO}#g" \
+              -e "s#@@COMPOSER_NAME@@#${name}#g" \
+              .github/mirror/banner.md.tmpl > "$work/README.md"
+          sed "s#](\.\./\.\./#](https://github.com/${MONOREPO}/blob/main/#g" \
+              "${pkg}/README.md" >> "$work/README.md"
+
+          cd "$work"
+          git config user.name "freshen-release"
+          git config user.email "release@users.noreply.github.com"
+          if git diff --quiet -- README.md; then
+            echo "Mirror README already up to date."
+          else
+            git add README.md
+            git commit -q -m "Sync README from ${pkg} (v${ver})"
+            git push -q origin HEAD:mirror
+          fi
