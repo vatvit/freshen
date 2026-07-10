@@ -1,0 +1,13 @@
+parameters:
+    level: max
+    paths:
+        - src
+    # The fluent Config builder is typed NodeParentInterface|null on Symfony 6.4, so
+    # PHPStan max cannot follow the chain in Configuration.php (it IS valid at runtime,
+    # and clean on Symfony 7.x). Scope the ignore to that file and that error class;
+    # reportUnmatchedIgnoredErrors:false lets it pass on 7.x where the error is absent.
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        -
+            message: '#Cannot call method \w+\(\) on .+\|null\.#'
+            path: src/DependencyInjection/Configuration.php
