@@ -84,7 +84,7 @@ work but fall back to Stash's best-effort lock (see
 A `Freshen\Cache` is **not a global cache** — it wraps **one loader**, i.e. one
 dataset, with its own TTLs. The loader is the heart of the library: Freshen calls
 it to (re)compute the authoritative value for a key (your DB query, an API call, a
-heavy computation). **You don't write values into the cache yourself** — a `get()`
+heavy computation). **On a read you never write values yourself** — a `get()`
 on a cold or due key invokes the loader and Freshen stores the result. That's the
 whole point: *read, and the cache keeps itself fresh, stampede-free.*
 
@@ -163,10 +163,11 @@ if (!$result->isMiss()) {   // isMiss() distinguishes "no entry" from "entry who
 `value()` throws a `RuntimeException` on a miss — guard with `isMiss()` (or
 `isHit()` / `isStale()`) first.
 
-> **You don't hand Freshen values — you drive the loader.** To change what's cached,
-> `invalidate()` drops an entry (the next `get()` recomputes it) and `refresh()`
-> recomputes it now — both pull the value from your loader, sync or async (§3/§4).
-> `put()` is the rare escape hatch where *you* supply the value yourself.
+> **To update an entry, pick by whether you already hold the value.** If you *don't*
+> have it, drive the loader: `invalidate()` drops the entry (next `get()` recomputes)
+> and `refresh()` recomputes it now (§3/§4). If you *already* have a fresh value — you
+> just computed it, or a write path produced it — `put($key, $value)` stores it
+> directly and **skips the loader**; using `refresh()` there would waste a recompute.
 
 ### A cache is a domain object — wrap it like a repository
 
@@ -219,7 +220,7 @@ use Freshen\SyncMode;
 $topSellersCache->invalidate($key, SyncMode::SYNC);      // hierarchical: drop the key AND its subtree
 $topSellersCache->invalidateExact($key, SyncMode::SYNC); // drop ONLY this key — its subtree (children) stays
 $topSellersCache->refresh($key, SyncMode::SYNC);         // recompute now via the loader, then store
-$topSellersCache->put($key, $value);                     // rare: store a value YOU supply (see §2)
+$topSellersCache->put($key, $value);                     // store a value you ALREADY have — skips the loader (cheaper than refresh)
 ```
 
 **Prefix selector.** `invalidate()` also accepts a `Freshen\Interface\KeyPrefixInterface`
