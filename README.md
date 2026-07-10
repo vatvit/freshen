@@ -56,7 +56,8 @@ follows **GitFlow**. See [RELEASING.md](RELEASING.md).
 
 The implementations are maintained **independently**; behavioral parity is
 tracked by documentation and each package's own test suite (no shared
-conformance harness at this stage).
+conformance harness at this stage). The language-neutral feature contract every
+package implements is [docs/PARITY.md](docs/PARITY.md).
 
 ## License
 
