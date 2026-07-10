@@ -1,6 +1,6 @@
 # Freshen
 
-High-performance cache library implementing **stale-while-revalidate** with
+Cache library implementing **stale-while-revalidate** with
 **cache-stampede prevention** (single-flight leader/follower recomputation and
 jittered TTLs).
 
