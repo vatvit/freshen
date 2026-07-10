@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+
+## [1.0.0-rc.3] - 2026-07-10
 ### Changed
 - `invalidateExact([...], SyncMode::SYNC)` now issues a single `DEL` for the whole
   batch (one round-trip) instead of one `DEL` per key. Single-key calls are unchanged
