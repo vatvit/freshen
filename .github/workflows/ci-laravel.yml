@@ -40,6 +40,22 @@ jobs:
       - run: composer update --prefer-dist --no-progress
       - run: composer analyse
 
+  # Coverage floor gate (REQUIREMENTS §4: tracked, no regression) — mirrors core.
+  # src/FreshenManager.php reuses Laravel's live phpredis client to build the pool +
+  # Cache, so it is exercised by the integration lane and excluded from the unit
+  # denominator (exactly like Freshen\Driver\Redis in core).
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+      - run: composer update --prefer-dist --no-progress
+      - run: vendor/bin/phpunit --coverage-clover build/clover.xml
+      - run: php ../../scripts/php-coverage-gate.php build/clover.xml 90 'src/FreshenManager.php'
+
   # Live-Redis lane: boot a real Laravel app against a real Redis and prove the
   # cold-key fill + async invalidate-via-queue path end-to-end (ext-redis).
   integration:

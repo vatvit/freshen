@@ -4,15 +4,18 @@ declare(strict_types=1);
 
 namespace Freshen\Bridge\Laravel\Tests;
 
+use Freshen\AsyncEvent;
 use Freshen\AsyncHandler;
 use Freshen\Bridge\Laravel\Async\ProcessFreshenAsyncEvent;
 use Freshen\Bridge\Laravel\FreshenManager;
 use Freshen\Cache;
 use Freshen\DefaultJitter;
+use Freshen\InvalidateEvent;
 use Freshen\InvalidateExactEvent;
 use Freshen\Key;
 use Freshen\RefreshEvent;
 use Illuminate\Container\Container;
+use LogicException;
 use PHPUnit\Framework\TestCase as PhpUnitTestCase;
 use Stash\Driver\Ephemeral;
 use Stash\Pool;
@@ -79,5 +82,31 @@ final class AsyncRoutingTest extends PhpUnitTestCase
         // Next read recomputes → loader called again.
         self::assertSame('v2', $this->cache->get($key)->value());
         self::assertSame(2, $this->loader->calls);
+    }
+
+    public function testInvalidateEventDropsTheSubtree(): void
+    {
+        $key = new Key('product', 'detail', 7);
+
+        // Prime the entry.
+        self::assertSame('v1', $this->cache->get($key)->value());
+        self::assertSame(1, $this->loader->calls);
+
+        // Route a hierarchical invalidation through the job.
+        (new ProcessFreshenAsyncEvent('any', new InvalidateEvent($key)))->handle($this->manager);
+
+        // Next read recomputes → loader called again.
+        self::assertSame('v2', $this->cache->get($key)->value());
+        self::assertSame(2, $this->loader->calls);
+    }
+
+    public function testUnroutableEventThrows(): void
+    {
+        $event = new class extends AsyncEvent {};
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessageMatches('/unroutable async event/');
+
+        (new ProcessFreshenAsyncEvent('any', $event))->handle($this->manager);
     }
 }

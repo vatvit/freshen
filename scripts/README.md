@@ -8,8 +8,13 @@ installed or executed on the host.
 | `php-test.sh` | Run PHPUnit + PHPStan in each PHP container (8.1 → 8.4). The PHP source runs natively across the whole range. |
 | `php-coverage.sh` | Run the unit suite under PCOV and enforce the coverage floor gate (default PHP 8.3, floor 90%). Excludes the Redis driver (see the integration lane). |
 | `php-redis-it.sh` | Run the live-Redis integration lane: a `redis:7` service + a PHP container with `ext-redis`, running only the `integration` suite (covers `Freshen\Driver\Redis`). |
-| `php-coverage-gate.php` | Helper invoked by `php-coverage.sh` / CI: reads a Clover report and fails if line coverage is below the floor. Not run directly. |
+| `php-coverage-gate.php` | Helper invoked by `php-coverage.sh` / `bridge-coverage.sh` / CI: reads a Clover report and fails if line coverage is below the floor. Not run directly. |
 | `ts-test.sh` | Build + lint + typecheck + coverage on Node 20, then smoke-load the built dist on Node 16/18/20/22. |
+| `symfony-test.sh` | Symfony bridge: PHPUnit (unit) + PHPStan max in each PHP container (8.1 → 8.4). |
+| `symfony-it.sh` | Symfony bridge live-Redis lane: `redis:7` + `ext-redis`, the `integration` suite. |
+| `laravel-test.sh` | Laravel bridge: PHPUnit (unit) + PHPStan max in each PHP container (8.2 → 8.4; PHP 8.2+ / Laravel 11+). |
+| `laravel-it.sh` | Laravel bridge live-Redis lane: `redis:7` + `ext-redis`, the `integration` suite. |
+| `bridge-coverage.sh` | Unit coverage + floor gate (PCOV, floor 90%) for a bridge: `bridge-coverage.sh <symfony\|laravel>`. Excludes each bridge's live-Redis wiring path. |
 
 ## Why the split differs by language
 
