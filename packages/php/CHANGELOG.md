@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+
+## [1.0.0-rc.2] - 2026-07-10
 ### Changed
 - **BREAKING:** async invalidation/refresh now emit one event **per operation** instead of a
   single `AsyncEvent{key, exact}`. `Freshen\AsyncEvent` is now an abstract base; the concrete
