@@ -89,7 +89,7 @@ on a cold or due key invokes the loader and Freshen stores the result. That's th
 whole point: *read, and the cache keeps itself fresh, stampede-free.*
 
 Need another dataset (say, categories)? That's **another loader and another
-`Cache`**, with its own TTLs — see [Framework integration](#framework-integration-sketches)
+`Cache`**, with its own TTLs — see [Framework integration](#framework-integration)
 for the per-dataset wiring.
 
 ```php
@@ -333,7 +333,7 @@ standards you already use, so wire it like any other service:
   reuses your existing event bus instead of shipping one. The one hard rule: async
   ops need *a* dispatcher wired in (else `LogicException`).
 
-### Framework integration (sketches)
+## Framework integration
 
 Wiring sketches — correct in shape, adapt names/versions to your app. Three things
 hold everywhere: (1) Freshen needs a **Stash** pool (not the framework's own
@@ -343,9 +343,11 @@ TTLs. A second dataset (e.g. categories) is a second loader + a second cache ser
 with its *own* config; name things accordingly. Drop-in bridge packages that hide
 this wiring are planned (see the project tasks).
 
-**Symfony** — wire it **declaratively**: every collaborator is a service, config
-comes from dataset-specific env, and `event_dispatcher` (PSR-14) is injected so
-async works out of the box. Your **loader is a first-class service**:
+### Symfony
+
+Wire it **declaratively**: every collaborator is a service, config comes from
+dataset-specific env, and `event_dispatcher` (PSR-14) is injected so async works out
+of the box. Your **loader is a first-class service**:
 
 ```php
 // src/Cache/TopSellersLoader.php — this service IS the "top sellers" dataset
@@ -407,9 +409,12 @@ services:
     # a second dataset = another loader + another `freshen.cache.categories` with CATEGORIES_* env
 ```
 
-**Laravel** — bind one named cache per dataset in a service provider. Laravel's
-event dispatcher is **not** PSR-14, so use `SyncMode::SYNC` (below), or supply a
-PSR-14 dispatcher and wire `AsyncHandler` for the async path.
+### Laravel
+
+Register the shared backend **once**, then a thin cache binding per dataset —
+don't rebuild the pool inside each closure. Laravel's event dispatcher is **not**
+PSR-14, so use `SyncMode::SYNC` (below), or supply a PSR-14 dispatcher and wire
+`AsyncHandler` for the async path.
 
 ```php
 // app/Providers/FreshenServiceProvider.php  (register method)
@@ -417,27 +422,30 @@ use App\Cache\TopSellersLoader;              // your LoaderInterface service (as
 use Freshen\{Cache, DefaultJitter};
 use Freshen\Driver\Redis as FreshenRedis;
 
-// one binding PER dataset — its own loader, its own config keys (config/freshen.php)
-$this->app->singleton('freshen.top_sellers', function ($app) {
-    $redis = $app->make('redis')->connection()->client();   // reuse Laravel's phpredis \Redis (REDIS_CLIENT=phpredis)
-    $pool  = new \Stash\Pool(new FreshenRedis(['connection' => $redis]));
+// shared services — registered once, reused by every cache (not built inline per dataset)
+$this->app->singleton(\Stash\Pool::class, fn ($app) =>
+    new \Stash\Pool(new FreshenRedis(['connection' => $app->make('redis')->connection()->client()])),
+);
+$this->app->singleton(DefaultJitter::class, fn () =>
+    new DefaultJitter((int) config('freshen.jitter_pct', 15)),
+);
 
-    return new Cache(
-        $pool,
-        $app->make(TopSellersLoader::class),                // resolved (with its deps) by the container
-        hardTtlSec: (int) config('freshen.top_sellers.hard_ttl', 3600),
-        precomputeSec: (int) config('freshen.top_sellers.precompute', 60),
-        jitter: new DefaultJitter((int) config('freshen.jitter_pct', 15)),
-        // no eventDispatcher → drive it synchronously (below); async needs a PSR-14 dispatcher
-    );
-});
+// one thin binding PER dataset — it just COMPOSES the shared pool + its own autowired loader + its config
+$this->app->singleton('freshen.top_sellers', fn ($app) => new Cache(
+    $app->make(\Stash\Pool::class),
+    $app->make(TopSellersLoader::class),                // autowired with its own deps (e.g. a repository)
+    hardTtlSec: (int) config('freshen.top_sellers.hard_ttl', 3600),
+    precomputeSec: (int) config('freshen.top_sellers.precompute', 60),
+    jitter: $app->make(DefaultJitter::class),
+    // no eventDispatcher → drive it synchronously (below); async needs a PSR-14 dispatcher
+));
 
 // use it:  app('freshen.top_sellers')->get($key);
 //          app('freshen.top_sellers')->refresh($key, \Freshen\SyncMode::SYNC);
-// another dataset → a second `freshen.categories` binding with its own loader + config.
+// another dataset → a second `freshen.categories` binding reusing the SAME shared pool.
 ```
 
-### Escape hatch & limitations
+## Escape hatch & limitations
 
 `$cache->asPool()` exposes the underlying Stash
 [PSR-6](https://www.php-fig.org/psr/psr-6/) pool for advanced/host use. Note that
