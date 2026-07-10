@@ -18,13 +18,16 @@ interface KeyInterface extends \Stringable
 
     public function locale(): ?string;
 
-    public function id(): string|array;              // original id as provided
+    /** @return string|array<array-key, mixed> original id as provided */
+    public function id(): string|array;
 
     public function idString(): string;              // deterministic, separator-safe id
 
     public function prefixString(): string;          // encoded "domain/facet[/schema][/locale]"
 
-    public function segments(): array;               // [domain, facet, (schema), (locale), idString]
+    /** @return list<string> [domain, facet, (schema), (locale), idString] */
+    public function segments(): array;
 
-    public function prefixSegments(): array;         // [domain, facet, (schema), (locale)]
+    /** @return list<string> [domain, facet, (schema), (locale)] */
+    public function prefixSegments(): array;
 }

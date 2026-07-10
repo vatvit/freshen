@@ -83,10 +83,10 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
     {
         $creation = $item->getCreation();
         $expiration = $item->getExpiration();
+        // getCreation() may return false (Stash: \DateTime|bool) — keep the guard.
         $createdAt = $creation instanceof \DateTimeInterface ? $creation->getTimestamp() : time();
-        $expiresAt = $expiration instanceof \DateTimeInterface
-            ? $expiration->getTimestamp()
-            : ($createdAt + $this->hardTtlSec);
+        // getExpiration() is typed \DateTime (never bool), so no instanceof guard is needed.
+        $expiresAt = $expiration->getTimestamp();
         $softAt = $expiresAt - $this->precomputeSec;
         if ($softAt < $createdAt) {
             $softAt = $createdAt;
@@ -178,12 +178,10 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
     private function save(KeyInterface $key, mixed $value): void
     {
         $item = $this->pool->getItem($key->toString());
-        // Stash TTL is hard TTL; add jitter if configured.
-        // NOTE: Stash's Item::executeSet subtracts a further random 0..15% from
-        // this TTL on save, so the *stored* expiry is not deterministic despite
-        // DefaultJitter being deterministic. There is no supported way to disable
-        // that in stock Stash. See https://github.com/tedious/Stash/issues/419
-        $hardTtl = $this->jitter?->apply($this->hardTtlSec, $key) ?? $this->hardTtlSec;
+        // Apply deterministic jitter to the hard TTL. Freshen\Item::executeSet stores
+        // it verbatim (it drops stock Stash's random 0..15% reduction — see #419), so
+        // the stored expiry stays deterministic. $jitter is a required constructor arg.
+        $hardTtl = $this->jitter->apply($this->hardTtlSec, $key);
 
         // PSR-6: store raw value; Stash keeps creation/expiration internally
         $item->set($value);
@@ -191,6 +189,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
         $this->pool->save($item);
     }
 
+    /** @param KeyPrefixInterface|KeyInterface|array<KeyInterface|KeyPrefixInterface> $selectors */
     public function invalidate(KeyPrefixInterface|KeyInterface|array $selectors, SyncMode $mode = SyncMode::ASYNC): void
     {
         foreach (is_array($selectors) ? $selectors : [$selectors] as $selector) {
@@ -199,7 +198,9 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
                 continue;
             }
 
-            $this->pool->getDriver()->clear($selector);
+            // Clear via the (Freshen) Item so the driver gets its internal key array,
+            // not a Key object. Item::clear() with no arg = hierarchical (exact=false).
+            $this->pool->getItem($selector->toString())->clear();
             $this->metrics?->inc('cache_invalidate_hierarchical');
         }
     }
@@ -212,7 +213,8 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
                 continue;
             }
 
-            $this->pool->getDriver()->clear($key, true);
+            // Exact (non-hierarchical) delete via Freshen\Item::clear(true).
+            $this->pool->getItem($key->toString())->clear(true);
             $this->metrics?->inc('cache_invalidate');
         }
     }

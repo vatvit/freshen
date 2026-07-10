@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Freshen\Tests;
 
 use Freshen\Cache;
+use Freshen\DefaultJitter;
+use Freshen\Item;
+use Freshen\Key;
 use Freshen\Interface\KeyInterface;
 use Freshen\Interface\LoaderInterface;
 use Freshen\Interface\JitterInterface;
@@ -13,10 +16,12 @@ use Freshen\SyncMode;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Stash\Driver\Ephemeral;
 use Stash\Interfaces\ItemInterface;
 use Stash\Interfaces\PoolInterface as StashPoolInterface;
 use Stash\Interfaces\DriverInterface as StashDriverInterface;
 use Stash\Invalidation;
+use Stash\Pool;
 
 final class CacheTest extends TestCase
 {
@@ -292,19 +297,20 @@ final class CacheTest extends TestCase
         (new Cache($poolA, $loader, 600, 60, $jitter, $dispatcherA, $metrics))
             ->invalidate($selector, SyncMode::ASYNC);
 
-        // SYNC invalidate should call driver->clear (hierarchical)
-        $driverB = $this->createMock(StashDriverInterface::class);
+        // SYNC invalidate clears hierarchically via the pool Item (Item::clear()) —
+        // NOT the driver directly, so the driver receives its internal key array.
+        $itemB = $this->createMock(Item::class);
         $poolB = $this->newPool();
-        $poolB->method('getDriver')->willReturn($driverB);
-        $driverB->expects($this->once())->method('clear')->with($selector);
+        $poolB->method('getItem')->with('sel')->willReturn($itemB);
+        $itemB->expects($this->once())->method('clear')->with(); // hierarchical (no exact flag)
         (new Cache($poolB, $loader, 600, 60, $jitter, null, $metrics))
             ->invalidate($selector, SyncMode::SYNC);
 
-        // invalidateExact SYNC should call clear with the exact flag
-        $driverC = $this->createMock(StashDriverInterface::class);
+        // invalidateExact SYNC clears exactly via Item::clear(true)
+        $itemC = $this->createMock(Item::class);
         $poolC = $this->newPool();
-        $poolC->method('getDriver')->willReturn($driverC);
-        $driverC->expects($this->once())->method('clear')->with($selector, true);
+        $poolC->method('getItem')->with('sel')->willReturn($itemC);
+        $itemC->expects($this->once())->method('clear')->with(true); // exact
         (new Cache($poolC, $loader, 600, 60, $jitter, null, $metrics))
             ->invalidateExact($selector, SyncMode::SYNC);
     }
@@ -319,6 +325,36 @@ final class CacheTest extends TestCase
 
         (new Cache($this->newPool(), $this->newLoader(), 600, 60, $this->newJitter(), $dispatcher))
             ->invalidate([$this->newKey('a'), $this->newKey('b')], SyncMode::ASYNC);
+    }
+
+    public function testSyncInvalidateAgainstRealPoolClearsWithoutError(): void
+    {
+        // Regression (FRSH-008): the old sync path passed the Key object straight to
+        // the Stash driver's clear() (which expects a key array) → runtime TypeError,
+        // masked because unit tests mock the driver. Route-through-Item must clear a
+        // real Ephemeral-backed value with no error.
+        $pool = new Pool(new Ephemeral());
+        $key = new Key('product', 'top-sellers', 42);
+
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, new DefaultJitter(0));
+        $cache->put($key, 'v');
+        self::assertTrue($pool->getItem($key->toString())->isHit(), 'precondition: stored');
+
+        $cache->invalidate($key, SyncMode::SYNC); // hierarchical — must not throw
+        self::assertFalse($pool->getItem($key->toString())->isHit(), 'value cleared');
+    }
+
+    public function testSyncInvalidateExactAgainstRealPoolClearsWithoutError(): void
+    {
+        $pool = new Pool(new Ephemeral());
+        $key = new Key('product', 'detail', 'sku-1');
+
+        $cache = new Cache($pool, $this->newLoader(), 600, 60, new DefaultJitter(0));
+        $cache->put($key, 'v');
+        self::assertTrue($pool->getItem($key->toString())->isHit());
+
+        $cache->invalidateExact($key, SyncMode::SYNC); // exact — must not throw
+        self::assertFalse($pool->getItem($key->toString())->isHit());
     }
 
     public function testRefreshSyncLoadsAndPuts(): void

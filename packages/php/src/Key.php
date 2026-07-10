@@ -15,16 +15,19 @@ class Key implements KeyInterface
     private ?string $schemaVersion;
     private ?string $locale;
 
-    /** @var string|array */
+    /** @var string|array<array-key, mixed> */
     private string|array $idRaw;
     private string $idStr;
 
-    private array $prefixSegments;   // plain segments without id
-    private array $fullSegments;     // prefixSegments + [idString]
+    /** @var list<string> plain segments without id */
+    private array $prefixSegments;
+    /** @var list<string> prefixSegments + [idString] */
+    private array $fullSegments;
 
     private string $prefixStr;       // encoded prefix
     private string $keyStr;          // encoded full key
 
+    /** @param string|int|array<array-key, mixed> $id */
     public function __construct(
         string           $domain,
         string           $facet,
@@ -99,6 +102,7 @@ class Key implements KeyInterface
         return $this->locale;
     }
 
+    /** @return string|array<array-key, mixed> */
     public function id(): string|array
     {
         return $this->idRaw;
@@ -114,11 +118,13 @@ class Key implements KeyInterface
         return $this->prefixStr;
     }
 
+    /** @return list<string> */
     public function segments(): array
     {
         return $this->fullSegments;
     }
 
+    /** @return list<string> */
     public function prefixSegments(): array
     {
         return $this->prefixSegments;
@@ -130,6 +136,8 @@ class Key implements KeyInterface
      * Convert composite array id to a deterministic, separator-safe string.
      * Default: canonical JSON → base64url with "j:" prefix (non-reversible, stable).
      * Override in subclasses to change the scheme (e.g., "h:" . hash('sha256', ...)).
+     *
+     * @param array<array-key, mixed> $id
      */
     protected function idStringify(array $id): string
     {
@@ -153,7 +161,12 @@ class Key implements KeyInterface
         return $s;
     }
 
-    /** Canonicalise arrays (stable composite id). */
+    /**
+     * Canonicalise arrays (stable composite id).
+     *
+     * @param  array<array-key, mixed> $a
+     * @return array<array-key, mixed>
+     */
     private function normalizeParams(array $a): array
     {
         ksort($a);

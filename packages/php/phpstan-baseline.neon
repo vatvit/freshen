@@ -1,166 +1,41 @@
+# PHPStan level-max baseline — kept small and every entry justified (REQUIREMENTS §4).
+# NOTE: `phpstan analyse --generate-baseline` rewrites this file and STRIPS these
+# comments. Re-add them (or move a permanent entry into phpstan.neon) after regenerating.
 parameters:
 	ignoreErrors:
+		# Intentional: invalidateExact() clears via Freshen\Item::clear(true), the exact-delete
+		# extension. Stash's ItemInterface::clear() only declares 0 parameters.
 		-
-			message: "#^Else branch is unreachable because ternary operator condition is always true\\.$#"
+			message: "#^Method Stash\\\\Interfaces\\\\ItemInterface\\:\\:clear\\(\\) invoked with 1 parameter, 0 required\\.$#"
 			count: 1
 			path: src/Cache.php
 
+		# TODO(FRSH-013): real bug — async invalidate() dispatches a KeyPrefixInterface
+		# selector into AsyncEvent, which only accepts KeyInterface. Fixed with the
+		# AsyncEvent redesign in FRSH-013 (widen the accepted key type).
 		-
-			message: "#^Expression on left side of \\?\\? is not nullable\\.$#"
+			message: "#^Parameter \\#1 \\$key of class Freshen\\\\AsyncEvent constructor expects Freshen\\\\Interface\\\\KeyInterface, Freshen\\\\Interface\\\\KeyInterface\\|Freshen\\\\Interface\\\\KeyPrefixInterface given\\.$#"
 			count: 1
 			path: src/Cache.php
 
-		-
-			message: "#^Method Freshen\\\\Cache\\:\\:invalidate\\(\\) has parameter \\$selectors with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Cache.php
-
-		-
-			message: "#^Method Freshen\\\\Cache\\:\\:invalidateExact\\(\\) has parameter \\$keys with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Cache.php
-
-		-
-			message: "#^Method Freshen\\\\Cache\\:\\:refresh\\(\\) has parameter \\$keys with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Cache.php
-
-		-
-			message: "#^Method Stash\\\\Interfaces\\\\DriverInterface\\:\\:clear\\(\\) invoked with 2 parameters, 0\\-1 required\\.$#"
-			count: 1
-			path: src/Cache.php
-
-		-
-			message: "#^Using nullsafe method call on non\\-nullable type Freshen\\\\Interface\\\\JitterInterface\\. Use \\-\\> instead\\.$#"
-			count: 1
-			path: src/Cache.php
-
-		-
-			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:clear\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Driver/Redis.php
-
-		-
-			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:setOptions\\(\\) has parameter \\$options with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Driver/Redis.php
-
-		-
-			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:storeAsLock\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Driver/Redis.php
-
-		-
-			message: "#^Method Freshen\\\\Driver\\\\Redis\\:\\:storeData\\(\\) has parameter \\$key with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Driver/Redis.php
-
+		# Intentional: setOptions() injects a \RedisCluster; the parent property is typed
+		# \Redis|\RedisArray and property types are invariant, so it can't be widened without
+		# a stub. Safe — the injected client is reused as-is (FRSH-010 regression is tested).
 		-
 			message: "#^Property Stash\\\\Driver\\\\Redis\\:\\:\\$redis \\(Redis\\|RedisArray\\) does not accept Redis\\|RedisCluster\\.$#"
 			count: 1
 			path: src/Driver/Redis.php
 
-		-
-			message: "#^Method Freshen\\\\Interface\\\\CacheInterface\\:\\:invalidate\\(\\) has parameter \\$selectors with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/CacheInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\CacheInterface\\:\\:invalidateExact\\(\\) has parameter \\$keys with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/CacheInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\CacheInterface\\:\\:refresh\\(\\) has parameter \\$keys with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/CacheInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\KeyInterface\\:\\:id\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/KeyInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\KeyInterface\\:\\:prefixSegments\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/KeyInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\KeyInterface\\:\\:segments\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/KeyInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\KeyPrefixInterface\\:\\:segments\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/KeyPrefixInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\MetricsInterface\\:\\:inc\\(\\) has parameter \\$labels with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/MetricsInterface.php
-
-		-
-			message: "#^Method Freshen\\\\Interface\\\\MetricsInterface\\:\\:observe\\(\\) has parameter \\$labels with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Interface/MetricsInterface.php
-
+		# Intentional: Freshen\Item::clear($exact) calls driver->clear($key, true) — the
+		# exact-delete Stash's DriverInterface::clear() (0-1 params) does not provide.
 		-
 			message: "#^Method Stash\\\\Interfaces\\\\DriverInterface\\:\\:clear\\(\\) invoked with 2 parameters, 0\\-1 required\\.$#"
 			count: 1
 			path: src/Item.php
 
+		# Intentional: guards an uninitialised typed property in the copied-from-Stash
+		# executeSet() (Stash\Item::$key is a typed array, unset until setKey()).
 		-
 			message: "#^Property Stash\\\\Item\\:\\:\\$key \\(array\\) in isset\\(\\) is not nullable\\.$#"
 			count: 1
 			path: src/Item.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:__construct\\(\\) has parameter \\$id with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:id\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:idStringify\\(\\) has parameter \\$id with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:normalizeParams\\(\\) has parameter \\$a with no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:normalizeParams\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:prefixSegments\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Method Freshen\\\\Key\\:\\:segments\\(\\) return type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Property Freshen\\\\Key\\:\\:\\$fullSegments type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Property Freshen\\\\Key\\:\\:\\$idRaw type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php
-
-		-
-			message: "#^Property Freshen\\\\Key\\:\\:\\$prefixSegments type has no value type specified in iterable type array\\.$#"
-			count: 1
-			path: src/Key.php

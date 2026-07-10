@@ -35,6 +35,8 @@ final class Redis extends BaseRedis
      * setOptions override:
      *  - Accepts ['connection' => \Redis|\RedisCluster] to reuse an existing client.
      *  - Falls back to parent behavior for standard options (servers, password, prefix, database, …).
+     *
+     * @param array<array-key, mixed> $options
      */
     public function setOptions(array $options = []): void
     {
@@ -54,6 +56,7 @@ final class Redis extends BaseRedis
         parent::setOptions($options);
     }
 
+    /** @param array<array-key, mixed> $key */
     public function storeData($key, $data, $expiration): bool
     {
         if (is_array($key) && isset($key[0]) && $key[0] === 'sp') {
@@ -69,6 +72,8 @@ final class Redis extends BaseRedis
      * This is the atomic single-flight guarantee stock Stash lacks — Item::lock()
      * otherwise does an unconditional SET and always returns true.
      * See https://github.com/tedious/Stash/issues/203
+     *
+     * @param list<string> $key
      */
     private function storeAsLock(array $key, mixed $data, int $ttl): bool
     {
@@ -86,6 +91,8 @@ final class Redis extends BaseRedis
      * index — the exact (non-hierarchical) delete stock Stash cannot do; its
      * clear() always cascades to child keys.
      * See https://github.com/tedious/Stash/issues/345 and /issues/369
+     *
+     * @param array<array-key, mixed>|null $key
      */
     public function clear($key = null, bool $exact = false): bool
     {
