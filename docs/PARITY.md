@@ -264,7 +264,7 @@ Three mutating operations, each accepting a single selector **or a list**, and a
 | Operation | Selector type | Effect |
 |-----------|---------------|--------|
 | `invalidate` | `KeyPrefix` \| `Key` (or list) | **Hierarchical** delete: removes everything under the prefix (a `Key` used here selects its whole subtree). |
-| `invalidateExact` | `Key` (or list) | **Exact** delete: removes only that key, leaving hierarchical neighbours intact. |
+| `invalidateExact` | `Key` (or list) | **Exact** delete: removes only that key, leaving its subtree (children) intact. |
 | `refresh` | `Key` (or list) | Recompute via `loader` and `put` the result now. |
 
 **Sync path (`mode = SYNC`):** perform the operation immediately against the

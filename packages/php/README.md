@@ -217,7 +217,7 @@ to act inline against the backend:
 use Freshen\SyncMode;
 
 $topSellersCache->invalidate($key, SyncMode::SYNC);      // hierarchical: drop the key AND its subtree
-$topSellersCache->invalidateExact($key, SyncMode::SYNC); // drop just this exact key (keeps neighbours)
+$topSellersCache->invalidateExact($key, SyncMode::SYNC); // drop ONLY this key — its subtree (children) stays
 $topSellersCache->refresh($key, SyncMode::SYNC);         // recompute now via the loader, then store
 $topSellersCache->put($key, $value);                     // rare: store a value YOU supply (see §2)
 ```
