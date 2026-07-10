@@ -59,3 +59,31 @@ jobs:
           git commit -q -m "Release v${ver}"
           git tag "v${ver}"
           git push origin "v${ver}"
+
+      - name: Sync README to mirror default branch (README-only)
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${{ steps.v.outputs.version }}"
+          work="$(mktemp -d)"
+          git clone -q --depth 1 --branch mirror \
+            "https://x-access-token:${MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git" "$work"
+          # Publish the package README on the mirror's default branch so visitors see the
+          # real docs. README-ONLY on purpose: never write a composer.json here, or
+          # Packagist would surface a floating dev-<branch> version (FRSH-021/FRSH-027).
+          # Relative links (../../docs, ../../LICENSE, …) are rewritten to absolute
+          # monorepo URLs so they resolve on the mirror.
+          cat .github/mirror/php-banner.md > "$work/README.md"
+          sed 's#\](\.\./\.\./#](https://github.com/vatvit/freshen/blob/main/#g' \
+            packages/php/README.md >> "$work/README.md"
+          cd "$work"
+          git config user.name "freshen-release"
+          git config user.email "release@users.noreply.github.com"
+          if git diff --quiet -- README.md; then
+            echo "Mirror README already up to date."
+          else
+            git add README.md
+            git commit -q -m "Sync README from packages/php (v${ver})"
+            git push -q origin HEAD:mirror
+          fi
