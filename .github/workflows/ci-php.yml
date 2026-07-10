@@ -39,3 +39,19 @@ jobs:
           coverage: none
       - run: composer update --prefer-dist --no-progress
       - run: composer analyse
+
+  # Coverage floor gate (REQUIREMENTS §4: tracked, no regression). Runs the unit
+  # suite under PCOV and fails if line coverage drops below the floor. Freshen's
+  # Redis driver is excluded from the denominator — it is covered by the separate
+  # live-Redis integration lane (scripts/php-redis-it.sh), not this unit run.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+      - run: composer update --prefer-dist --no-progress
+      - run: vendor/bin/phpunit --coverage-clover build/clover.xml
+      - run: php ../../scripts/php-coverage-gate.php build/clover.xml 90
