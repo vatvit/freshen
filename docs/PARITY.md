@@ -1,6 +1,6 @@
-# freshen — Parity Contract
+# Freshen — Parity Contract
 
-This is the **language-neutral feature specification** for `freshen`. It defines
+This is the **language-neutral feature specification** for Freshen. It defines
 the behaviour and observable API that *every* language package must implement
 identically. It is the source of truth for cross-language **parity**: the PHP
 package (`packages/php`) is the reference implementation, and the TS/JS package
@@ -26,7 +26,7 @@ package (`packages/php`) is the reference implementation, and the TS/JS package
 
 ## 1. Purpose
 
-`freshen` is a **stale-while-revalidate (SWR)** cache with **stampede
+Freshen is a **stale-while-revalidate (SWR)** cache with **stampede
 prevention**. On a read it serves a fresh cached value when one exists; when the
 value is due for recomputation it elects a **single** caller (the *leader*) to
 recompute while every other caller (a *follower*) is served the previous value or

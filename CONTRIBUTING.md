@@ -1,6 +1,6 @@
 # Contributing
 
-`freshen` is a monorepo with one package per language stack. Each package is
+Freshen is a monorepo with one package per language stack. Each package is
 self-contained and built/tested with its own toolchain. **All toolchains run in
 Docker — nothing is installed or run on the host.**
 

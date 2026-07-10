@@ -1,6 +1,6 @@
 # Compatibility & Versioning Policy
 
-`freshen` is a public library. Its versions and its backward-compatibility
+Freshen is a public library. Its versions and its backward-compatibility
 guarantees are a contract with everyone who installs it.
 
 ## Versioning is manual
