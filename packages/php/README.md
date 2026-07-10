@@ -168,6 +168,46 @@ if (!$result->isMiss()) {   // isMiss() distinguishes "no entry" from "entry who
 > recomputes it now — both pull the value from your loader, sync or async (§3/§4).
 > `put()` is the rare escape hatch where *you* supply the value yourself.
 
+### A cache is a domain object — wrap it like a repository
+
+This is the architectural intent of the class layout: a `Freshen\Cache` instance is
+**the complete logic for one piece of business data** — how it's loaded (the loader),
+how long it lives (TTLs), how it's refreshed and invalidated. It is *not* a generic
+key-value bucket you reach into from everywhere.
+
+You already do this for the database: raw SQL doesn't get sprinkled across the app,
+it's wrapped in a `ProductRepository`. **Cached data is no different** — so isolate
+each dataset behind a small business object that owns its cache and hides the keys:
+
+```php
+final class TopSellers                         // a domain object, like a repository
+{
+    public function __construct(private Cache $cache) {}   // its own per-dataset Freshen\Cache
+
+    /** @return Product[] */
+    public function forCategory(int $categoryId, string $locale): array
+    {
+        $r = $this->cache->get($this->key($categoryId, $locale));
+        return $r->isMiss() ? [] : $r->value();
+    }
+
+    public function refresh(int $categoryId, string $locale): void
+    {
+        $this->cache->refresh($this->key($categoryId, $locale));   // recompute via the loader
+    }
+
+    private function key(int $categoryId, string $locale): Key
+    {
+        return new Key('product', 'top-sellers', ['category' => $categoryId], locale: $locale);
+    }
+}
+```
+
+Callers write `$topSellers->forCategory(456, 'en')` — they never touch a `Key`, a TTL,
+or the word "cache". Each dataset (top sellers, categories, a user profile) is its own
+such object with its own `Cache`, loader, and TTLs. **Split and isolate your cached
+data**; treat it as the first-class domain concept it is.
+
 ### 3. Invalidate & refresh
 
 Three write-side operations. Each defaults to **async** (§4); pass `SyncMode::SYNC`
