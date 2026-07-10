@@ -1,6 +1,6 @@
 # @vatvit/freshen (TS / JS)
 
-TypeScript/JavaScript implementation of **freshen** — a stale-while-revalidate
+TypeScript/JavaScript implementation of **Freshen** — a stale-while-revalidate
 cache with stampede prevention.
 
 ```bash

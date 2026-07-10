@@ -1,19 +1,44 @@
-# freshen (PHP)
+# Freshen (PHP)
 
-PHP implementation of **freshen** — a **stale-while-revalidate** cache with
+PHP implementation of **Freshen** — a **stale-while-revalidate** cache with
 **cache-stampede prevention** (single-flight leader/follower recompute + jittered
-TTLs).
+TTLs) and **built-in metrics**.
 
 Runs natively on **PHP 8.1 → 8.4** (single source, no downgrade build). See
 [`COMPATIBILITY.md`](../../COMPATIBILITY.md).
+
+## At a glance
+
+Once a cache is wired (a few lines — see [Usage](#usage)), reading is two lines and
+you never touch the store, a stampede, or serialisation:
+
+```php
+use Freshen\Key;
+
+$item = $topSellersCache->get(
+    new Key('product', 'top-sellers', ['category' => 456, 'brand' => 'Apple'], locale: 'en'),
+);
+
+return $item->isMiss() ? [] : $item->value();   // value() returns what the loader produced — here, an array
+```
+
+On a miss, `$topSellersCache` calls your loader, stores the result, and returns it —
+no "check store → query → write back" dance, no stampede handling. `value()` gives
+back exactly what the loader returned (an array stays an array; Stash (de)serialises
+for you), and `isMiss()` even tells a cached `null` apart from an absent entry.
 
 > This directory is the source of truth. It is subtree-split by CI into a
 > read-only mirror repository that Packagist serves.
 
 ## Install
 
+> **Pre-1.0 — release candidate.** The public API may still change before `1.0.0`
+> (see [`COMPATIBILITY.md`](../../COMPATIBILITY.md)). Until a stable tag ships,
+> require the RC explicitly (Composer's default `minimum-stability` is `stable`, so
+> a bare `require` won't resolve an RC):
+
 ```bash
-composer require vatvit/freshen
+composer require vatvit/freshen:^1.0@rc      # or a pinned :1.0.0-rc.2
 ```
 
 Requires a [PSR-6](https://www.php-fig.org/psr/psr-6/) cache pool
@@ -24,24 +49,48 @@ backend.
 
 ### 1. Wire a backend
 
-`Freshen\Cache` uses [Stash](https://github.com/tedious/Stash) under the hood —
-configure your pool per Stash's documentation. For the **full** guarantees (atomic
-single-flight recompute and **exact**, non-hierarchical invalidation) use Freshen's
-Redis driver, `Freshen\Driver\Redis`, in place of `Stash\Driver\Redis`:
+`Freshen\Cache` reads and writes through a [Stash](https://github.com/tedious/Stash)
+pool. For the **full** guarantees (atomic single-flight recompute and **exact**,
+non-hierarchical invalidation) use Freshen's Redis driver, `Freshen\Driver\Redis`,
+in place of `Stash\Driver\Redis`. Two equivalent ways to build the pool:
 
 ```php
 use Freshen\Driver\Redis as FreshenRedis;
 
-$pool = new \Stash\Pool(new FreshenRedis(['connection' => new \Redis()]));
+// (a) reuse a \Redis client you already created — one shared connection app-wide
+$pool = new \Stash\Pool(              // Stash\Pool: the PSR-6 backend Freshen reads/writes through
+    new FreshenRedis([                // Freshen's Redis driver: adds atomic single-flight + exact delete
+        'connection' => new \Redis(), //   your already-connected client — you own the socket
+    ]),
+);
+
+// (b) …or hand the driver connection options and let it open the client for you
+$pool = new \Stash\Pool(
+    new FreshenRedis(['servers' => [['127.0.0.1', 6379]]]),   // standard Stash-Redis options
+);
 ```
 
-`Cache` wires its own item class (`Freshen\Item`, for deterministic TTLs and exact
-delete) onto the pool automatically — you don't set it yourself. Strong single-flight
-needs a backend with a conditional write: **Redis** (`SET NX`) today; other Stash
-drivers work but fall back to Stash's best-effort lock (see
+`$pool` is a plain **PSR-6** pool (`\Stash\Pool` implements
+`Psr\Cache\CacheItemPoolInterface`) — Freshen *consumes* it, it isn't a Freshen
+type; if you already cache with Stash it's the pool you already have. `Cache` wires
+its own item class (`Freshen\Item`, for deterministic TTLs and exact delete) onto
+the pool automatically — you don't set it yourself. Strong single-flight needs a
+backend with a conditional write: **Redis** (`SET NX`) today; other Stash drivers
+work but fall back to Stash's best-effort lock (see
 [`docs/PARITY.md`](../../docs/PARITY.md) §12, §14).
 
-### 2. Build the cache and read
+### 2. Build a cache for one dataset, and read
+
+A `Freshen\Cache` is **not a global cache** — it wraps **one loader**, i.e. one
+dataset, with its own TTLs. The loader is the heart of the library: Freshen calls
+it to (re)compute the authoritative value for a key (your DB query, an API call, a
+heavy computation). **On a read you never write values yourself** — a `get()`
+on a cold or due key invokes the loader and Freshen stores the result. That's the
+whole point: *read, and the cache keeps itself fresh, stampede-free.*
+
+Need another dataset (say, categories)? That's **another loader and another
+`Cache`**, with its own TTLs — see [Framework integration](#framework-integration)
+for the per-dataset wiring.
 
 ```php
 use Freshen\Cache;
@@ -49,47 +98,154 @@ use Freshen\CallableLoader;
 use Freshen\DefaultJitter;
 use Freshen\Key;
 
-$loader = new CallableLoader(fn (Key $key) => expensiveQuery($key));
+// This loader IS the "top sellers" dataset — the source of truth for that value.
+// CallableLoader adapts a plain `fn (Key) => mixed`; in an app you'd inject a Loader service.
+$topSellers = new CallableLoader(fn (Key $key) => $repo->topSellers($key->id()));
 
-$cache = new Cache(
+$topSellersCache = new Cache(
     $pool,
-    $loader,
-    hardTtlSec: 3600,       // absolute lifetime
-    precomputeSec: 60,      // recompute in the last 60s before expiry (stampede-free)
-    jitter: new DefaultJitter(15),
+    $topSellers,
+    hardTtlSec: 3600,      // absolute lifetime — the entry is gone 3600s after it's written
+    precomputeSec: 60,     // in the last 60s before expiry, ONE caller recomputes early
+                           //   (stampede-free) while others still read the current value
+    jitter: new DefaultJitter(15),   // spread each key's TTL by ±15% so sibling keys
+                                     //   don't all expire at the same instant (a stampede cause)
 );
-
-$key = new Key('product', 'top-sellers', ['category' => 456, 'brand' => 'Apple'], schemaVersion: '2', locale: 'en');
-
-$result = $cache->get($key);          // fresh hit, stale-while-revalidate, or miss
-if (!$result->isMiss()) {
-    $value = $result->value();
-    // $result->isStale() === true while a background recompute is in flight
-}
-
-$cache->put($key, $value);            // store a value explicitly
 ```
 
-### 3. Invalidate & refresh (synchronous)
+A **`Key`** is a structured, immutable identity —
+`domain / facet [ / schemaVersion ] [ / locale ] / id`:
+
+```php
+$key = new Key(
+    'product',                                 // domain — top-level namespace for the entry
+    'top-sellers',                             // facet  — the kind of thing within that domain
+    ['category' => 456, 'brand' => 'Apple'],   // id     — a scalar OR a map; maps are canonicalised
+                                               //          (key order doesn't matter → same key)
+    schemaVersion: '2',                        // optional — bump on a value-shape change to
+                                               //            invalidate every old entry at once
+    locale: 'en',                              // optional — vary the cached entry per locale
+);
+```
+
+**Why `domain` + `facet`?** Together they form the key's **prefix** — a hierarchy,
+not just a namespace. `domain` is the bounded context / entity type (`product`,
+`user`, `order`); `facet` is the specific view or query within it (`top-sellers`,
+`profile`, `detail`). Grouping entries under a shared prefix is what makes
+**hierarchical invalidation** work: `invalidate()` on a prefix drops *every* entry
+beneath it in one call (e.g. clear all `product/top-sellers/*` variants at once),
+while `invalidateExact()` removes just the single entry.
+
+**Why the `id` can be complex (a map).** A cached value is usually a function of
+*several* inputs — filters, pagination, options — not one scalar. Rather than make
+you hand-build and normalise a string, `Key` takes the whole parameter map and
+**canonicalises** it: keys are deep-sorted so logically-equal inputs produce the
+*same* key regardless of order (`['brand' => 'Apple', 'category' => 456]` is the
+same key as the example above), then serialised to a deterministic, separator-safe,
+cross-language-stable token. So multi-dimensional keys stay correct and
+collision-free with no effort on your side.
+
+Now just **read**. On a miss the loader fills the cache; within the precompute
+window one caller refreshes while the rest are served the current value; under a
+recompute a follower is served the previous (stale) value — all automatic:
+
+```php
+$result = $topSellersCache->get($key);
+if (!$result->isMiss()) {   // isMiss() distinguishes "no entry" from "entry whose value IS null":
+                            //   a cached null is a real HIT, so a plain `$value === null` can't tell them apart
+    $value = $result->value();
+    // $result->isStale() === true while a background recompute is in flight
+    $result->createdAt();       // unix seconds the payload was created (null on miss)
+    $result->softExpiresAt();   // unix seconds the precompute window opens (null on miss)
+}
+```
+
+`value()` throws a `RuntimeException` on a miss — guard with `isMiss()` (or
+`isHit()` / `isStale()`) first.
+
+> **To update an entry, pick by whether you already hold the value.** If you *don't*
+> have it, drive the loader: `invalidate()` drops the entry (next `get()` recomputes)
+> and `refresh()` recomputes it now (§3/§4). If you *already* have a fresh value — you
+> just computed it, or a write path produced it — `put($key, $value)` stores it
+> directly and **skips the loader**; using `refresh()` there would waste a recompute.
+
+### A cache is a domain object — wrap it like a repository
+
+This is the architectural intent of the class layout: a `Freshen\Cache` instance is
+**the complete logic for one piece of business data** — how it's loaded (the loader),
+how long it lives (TTLs), how it's refreshed and invalidated. It is *not* a generic
+key-value bucket you reach into from everywhere.
+
+You already do this for the database: raw SQL doesn't get sprinkled across the app,
+it's wrapped in a `ProductRepository`. **Cached data is no different** — so isolate
+each dataset behind a small business object that owns its cache and hides the keys:
+
+```php
+final class TopSellers                         // a domain object, like a repository
+{
+    public function __construct(private Cache $cache) {}   // its own per-dataset Freshen\Cache
+
+    /** @return Product[] */
+    public function forCategory(int $categoryId, string $locale): array
+    {
+        $r = $this->cache->get($this->key($categoryId, $locale));
+        return $r->isMiss() ? [] : $r->value();
+    }
+
+    public function refresh(int $categoryId, string $locale): void
+    {
+        $this->cache->refresh($this->key($categoryId, $locale));   // recompute via the loader
+    }
+
+    private function key(int $categoryId, string $locale): Key
+    {
+        return new Key('product', 'top-sellers', ['category' => $categoryId], locale: $locale);
+    }
+}
+```
+
+Callers write `$topSellers->forCategory(456, 'en')` — they never touch a `Key`, a TTL,
+or the word "cache". Each dataset (top sellers, categories, a user profile) is its own
+such object with its own `Cache`, loader, and TTLs. **Split and isolate your cached
+data**; treat it as the first-class domain concept it is.
+
+### 3. Invalidate & refresh
+
+Three write-side operations. Each defaults to **async** (§4); pass `SyncMode::SYNC`
+to act inline against the backend:
 
 ```php
 use Freshen\SyncMode;
 
-$cache->invalidate($key, SyncMode::SYNC);        // hierarchical: the key and its subtree
-$cache->invalidateExact($key, SyncMode::SYNC);   // this exact key only (keeps children)
-$cache->refresh($key, SyncMode::SYNC);           // recompute now via the loader, then store
+$topSellersCache->invalidate($key, SyncMode::SYNC);      // hierarchical: drop the key AND its subtree
+$topSellersCache->invalidateExact($key, SyncMode::SYNC); // drop ONLY this key — its subtree (children) stays
+$topSellersCache->refresh($key, SyncMode::SYNC);         // recompute now via the loader, then store
+$topSellersCache->put($key, $value);                     // store a value you ALREADY have — skips the loader (cheaper than refresh)
 ```
 
-### 4. Invalidate & refresh (asynchronous)
+**Prefix selector.** `invalidate()` also accepts a `Freshen\Interface\KeyPrefixInterface`
+— clear a whole subtree without a concrete `Key`:
 
-Invalidation and refresh default to `SyncMode::ASYNC`: instead of touching the
-backend inline they emit a per-operation event through a
-[PSR-14](https://www.php-fig.org/psr/psr-14/) event dispatcher, and a subscribed
-`Freshen\AsyncHandler` performs the equivalent synchronous operation later. Each
+```php
+$topSellersCache->invalidate($prefix, SyncMode::SYNC);   // e.g. every product/top-sellers/* entry
+```
+
+**Batching.** All three accept a **list** to act on many selectors in one call:
+
+```php
+$topSellersCache->refresh([$key1, $key2], SyncMode::SYNC);
+```
+
+### 4. Invalidate & refresh — asynchronous (the default)
+
+`invalidate()` / `invalidateExact()` / `refresh()` default to `SyncMode::ASYNC`:
+instead of touching the backend inline they emit a per-operation event through a
+[PSR-14](https://www.php-fig.org/psr/psr-14/) dispatcher, and a subscribed
+`Freshen\AsyncHandler` performs the equivalent **SYNC** operation later. Each
 operation has its own event class — `Freshen\InvalidateEvent`,
 `Freshen\InvalidateExactEvent`, `Freshen\RefreshEvent` (all extend the abstract
-`Freshen\AsyncEvent`) — so your listener provider routes each op to the right
-handler by event class alone. Pass the dispatcher to the constructor:
+`Freshen\AsyncEvent`) — so a listener provider routes each op to the right handler
+by event class alone. Give the cache a dispatcher, then wire the handler:
 
 ```php
 use Freshen\AsyncHandler;
@@ -97,28 +253,199 @@ use Freshen\InvalidateEvent;
 use Freshen\InvalidateExactEvent;
 use Freshen\RefreshEvent;
 
-// $dispatcher is your PSR-14 EventDispatcherInterface (Symfony, League, …).
-$cache = new Cache(
-    $pool, $loader,
+// build the same cache WITH a PSR-14 dispatcher (Symfony's, League's, …)
+$topSellersCache = new Cache(
+    $pool, $topSellers,
     hardTtlSec: 3600, precomputeSec: 60, jitter: new DefaultJitter(15),
     eventDispatcher: $dispatcher,
 );
 
-// In your app's event wiring, route each event class to its handler method:
-$handler = new AsyncHandler($cache);
-// $provider->addListener(InvalidateEvent::class,      [$handler, 'handleInvalidation']);
-// $provider->addListener(InvalidateExactEvent::class, [$handler, 'handleInvalidateExact']);
-// $provider->addListener(RefreshEvent::class,         [$handler, 'handleRefresh']);
+// register each event class with its handler method.
+// `addListener` here is illustrative — the exact call belongs to YOUR PSR-14
+// listener provider (Symfony's, League's, etc.); the routing idea is the same.
+$handler = new AsyncHandler($topSellersCache);
+$provider->addListener(InvalidateEvent::class,      [$handler, 'handleInvalidation']);
+$provider->addListener(InvalidateExactEvent::class, [$handler, 'handleInvalidateExact']);
+$provider->addListener(RefreshEvent::class,         [$handler, 'handleRefresh']);
 
-$cache->invalidate($key);        // async (default): dispatches InvalidateEvent
-$cache->invalidateExact($key);   // async (default): dispatches InvalidateExactEvent
-$cache->refresh($key);           // async (default): dispatches RefreshEvent
+// then, from your request path, fire-and-forget:
+$topSellersCache->invalidate($key);        // async (default): dispatches InvalidateEvent
+$topSellersCache->invalidateExact($key);   // async (default): dispatches InvalidateExactEvent
+$topSellersCache->refresh($key);           // async (default): dispatches RefreshEvent
 ```
 
 Calling an async operation when no dispatcher was configured throws a
 `LogicException`.
 
-### Escape hatch & limitations
+### 5. Observability — metrics, built in
+
+Freshen emits a **named metric on every read/write path**, so hit / stale / fill /
+miss / invalidate visibility is built in, not bolted on. Implement `MetricsInterface`
+to forward them to StatsD, Prometheus, your logger — anything. No sink? Metrics are
+simply off, at zero cost.
+
+```php
+use Freshen\Interface\MetricsInterface;
+
+$topSellersCache = new Cache(
+    $pool, $topSellers,
+    hardTtlSec: 3600, precomputeSec: 60, jitter: new DefaultJitter(15),
+    metrics: $metrics,   // your MetricsInterface: inc(name, labels) / observe(name, value, labels)
+);
+```
+
+Emitted set: `cache_hit{state: fresh|stale|fresh_after_sleep}`, `cache_fill`,
+`cache_put`, `cache_miss{cause: …}`, `cache_invalidate`,
+`cache_invalidate_hierarchical`. Fire-and-forget — a sink **must not** throw into
+the cache path. See [`docs/PARITY.md`](../../docs/PARITY.md) §10.
+
+### 6. Fail-open
+
+`failOpen` (constructor, default `true`) is the last-resort behaviour under
+contention when there is no value to serve: `true` recomputes via the loader and
+returns it **without caching** (a `HIT`) — availability over a cold store; `false`
+returns a `MISS` instead. See [`docs/PARITY.md`](../../docs/PARITY.md) §7.
+
+```php
+$topSellersCache = new Cache(
+    $pool, $topSellers,
+    hardTtlSec: 3600, precomputeSec: 60, jitter: new DefaultJitter(15),
+    failOpen: false,     // prefer an explicit MISS over an uncached recompute
+);
+```
+
+### How it wires into your app (PSR + DI)
+
+Freshen ships **no framework of its own** — it's a small core that plugs into
+standards you already use, so wire it like any other service:
+
+- **Backend** — a **PSR-6** pool (Stash). Freshen consumes the pool you hand it; it
+  bundles no store and forces no cache abstraction on you.
+- **`Loader`, `Jitter`, `Metrics`** — plain interfaces
+  (`Freshen\Interface\{LoaderInterface, JitterInterface, MetricsInterface}`).
+  `CallableLoader` and `DefaultJitter` are bundled *defaults* for a quick start; in a
+  real app you implement (or bind) these and **inject them via your DI container**
+  like anything else. The constructor takes the interfaces, never a concrete.
+- **Async events & handler** — `AsyncEvent` / `InvalidateEvent` /
+  `InvalidateExactEvent` / `RefreshEvent` and `AsyncHandler` are plain PHP objects
+  with **no dispatcher of their own**. They travel through **any PSR-14
+  `EventDispatcherInterface`** — Symfony's, League's, your framework's — so Freshen
+  reuses your existing event bus instead of shipping one. The one hard rule: async
+  ops need *a* dispatcher wired in (else `LogicException`).
+
+## Framework integration
+
+Wiring sketches — correct in shape, adapt names/versions to your app. Three things
+hold everywhere: (1) Freshen needs a **Stash** pool (not the framework's own
+cache/PSR-6 pool); (2) async needs a **PSR-14** dispatcher — **Symfony's is** PSR-14,
+**Laravel's is not**; and (3) **a `Cache` is per-dataset** — one loader, its own
+TTLs. A second dataset (e.g. categories) is a second loader + a second cache service
+with its *own* config; name things accordingly. Drop-in bridge packages that hide
+this wiring are planned (see the project tasks).
+
+### Symfony
+
+Wire it **declaratively**: every collaborator is a service, config comes from
+dataset-specific env, and `event_dispatcher` (PSR-14) is injected so async works out
+of the box. Your **loader is a first-class service**:
+
+```php
+// src/Cache/TopSellersLoader.php — this service IS the "top sellers" dataset
+namespace App\Cache;
+
+use App\Repository\ProductRepository;
+use Freshen\Interface\LoaderInterface;
+use Freshen\Interface\KeyInterface;
+
+final class TopSellersLoader implements LoaderInterface
+{
+    public function __construct(private ProductRepository $repo) {}   // inject your own deps
+
+    public function resolve(KeyInterface $key): mixed
+    {
+        return $this->repo->topSellers($key->id());                  // your query
+    }
+}
+```
+
+```yaml
+# config/services.yaml
+services:
+    # backend: a Redis client → Freshen's driver → a Stash pool, each a service (shared by all caches)
+    freshen.redis:
+        class: Redis
+        calls: [ [connect, ['%env(REDIS_HOST)%', '%env(int:REDIS_PORT)%']] ]
+    Freshen\Driver\Redis:
+        arguments: [ { connection: '@freshen.redis' } ]   # reuse the client; or use `servers` options
+    Stash\Pool:
+        arguments: [ '@Freshen\Driver\Redis' ]
+    Freshen\DefaultJitter:
+        arguments: [ '%env(int:FRESHEN_JITTER_PCT)%' ]
+
+    # your loader for THIS dataset
+    App\Cache\TopSellersLoader: ~
+
+    # one cache PER dataset — named, with its OWN ttl/precompute env (TOP_SELLERS_*)
+    freshen.cache.top_sellers:
+        class: Freshen\Cache
+        arguments:
+            $pool: '@Stash\Pool'
+            $loader: '@App\Cache\TopSellersLoader'
+            $hardTtlSec: '%env(int:TOP_SELLERS_HARD_TTL)%'
+            $precomputeSec: '%env(int:TOP_SELLERS_PRECOMPUTE)%'
+            $jitter: '@Freshen\DefaultJitter'
+            $eventDispatcher: '@event_dispatcher'         # Symfony's dispatcher IS PSR-14
+        # inject where needed:  #[Autowire(service: 'freshen.cache.top_sellers')] Cache $topSellers
+
+    # async worker for this cache: one listener per event class
+    freshen.handler.top_sellers:
+        class: Freshen\AsyncHandler
+        arguments: [ '@freshen.cache.top_sellers' ]
+        tags:
+            - { name: kernel.event_listener, event: Freshen\InvalidateEvent,      method: handleInvalidation }
+            - { name: kernel.event_listener, event: Freshen\InvalidateExactEvent, method: handleInvalidateExact }
+            - { name: kernel.event_listener, event: Freshen\RefreshEvent,         method: handleRefresh }
+
+    # a second dataset = another loader + another `freshen.cache.categories` with CATEGORIES_* env
+```
+
+### Laravel
+
+Register the shared backend **once**, then a thin cache binding per dataset —
+don't rebuild the pool inside each closure. Laravel's event dispatcher is **not**
+PSR-14, so use `SyncMode::SYNC` (below), or supply a PSR-14 dispatcher and wire
+`AsyncHandler` for the async path.
+
+```php
+// app/Providers/FreshenServiceProvider.php  (register method)
+use App\Cache\TopSellersLoader;              // your LoaderInterface service (as in the Symfony example)
+use Freshen\{Cache, DefaultJitter};
+use Freshen\Driver\Redis as FreshenRedis;
+
+// shared services — registered once, reused by every cache (not built inline per dataset)
+$this->app->singleton(\Stash\Pool::class, fn ($app) =>
+    new \Stash\Pool(new FreshenRedis(['connection' => $app->make('redis')->connection()->client()])),
+);
+$this->app->singleton(DefaultJitter::class, fn () =>
+    new DefaultJitter((int) config('freshen.jitter_pct', 15)),
+);
+
+// one thin binding PER dataset — it just COMPOSES the shared pool + its own autowired loader + its config
+$this->app->singleton('freshen.top_sellers', fn ($app) => new Cache(
+    $app->make(\Stash\Pool::class),
+    $app->make(TopSellersLoader::class),                // autowired with its own deps (e.g. a repository)
+    hardTtlSec: (int) config('freshen.top_sellers.hard_ttl', 3600),
+    precomputeSec: (int) config('freshen.top_sellers.precompute', 60),
+    jitter: $app->make(DefaultJitter::class),
+    // no eventDispatcher → drive it synchronously (below); async needs a PSR-14 dispatcher
+));
+
+// use it:  app('freshen.top_sellers')->get($key);
+//          app('freshen.top_sellers')->refresh($key, \Freshen\SyncMode::SYNC);
+// another dataset → a second `freshen.categories` binding reusing the SAME shared pool.
+```
+
+## Escape hatch & limitations
 
 `$cache->asPool()` exposes the underlying Stash
 [PSR-6](https://www.php-fig.org/psr/psr-6/) pool for advanced/host use. Note that
@@ -129,14 +456,22 @@ by key or prefix with `invalidate()` / `invalidateExact()` instead.
 
 The cross-language behaviour contract is [`docs/PARITY.md`](../../docs/PARITY.md).
 
-## Develop
+## Develop / contribute
 
-Everything runs in Docker — nothing on the host.
+The test and quality tooling runs across the full PHP version matrix in **Docker**
+(each script spins up the right container) — install Docker, then from the repo root:
 
 ```bash
-composer install
-composer test          # PHPUnit
-scripts/php-test.sh    # full 8.1 → 8.4 matrix (from repo root)
+scripts/php-test.sh       # PHPUnit + PHPStan (level max) across PHP 8.1 → 8.4
+scripts/php-coverage.sh   # unit coverage + floor gate
+scripts/php-redis-it.sh   # live-Redis integration lane
+```
+
+If you have PHP 8.1+ and Composer locally, you can also run the suite directly
+inside `packages/php`:
+
+```bash
+composer install && composer test
 ```
 
 ## License

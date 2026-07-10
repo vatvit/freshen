@@ -1,4 +1,4 @@
-# freshen — Project Requirements
+# Freshen — Project Requirements
 
 The standards this library is built and maintained to. Applies to every language
 package. These are requirements, not aspirations — CI enforces the automatable
