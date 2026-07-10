@@ -5,8 +5,14 @@ name: Release PHP → Packagist mirror
 # Packagist watches. Composer needs composer.json at a repo root, so the package
 # lives in its own mirror repo rather than this monorepo subdirectory.
 #
+# The package is published on the `v${ver}` TAG ONLY — we never push an installable
+# default branch. Packagist creates a version for every ref that has a root
+# composer.json, so an installable `main` would surface a floating `dev-main`
+# version; publishing tags-only keeps Packagist to the real releases (FRSH-021).
+#
 # SETUP REQUIRED (one-time):
-#   1. Create the mirror repo (default: vatvit/freshen-php).
+#   1. Create the mirror repo (default: vatvit/freshen-php). Keep its `main` branch
+#      as a composer.json-free placeholder (e.g. a README) so no `dev-main` appears.
 #   2. Add a PAT with push access to the mirror as secret MIRROR_TOKEN here.
 #   3. Register the mirror on Packagist as package vatvit/freshen.
 #   4. Release by tagging: git tag php-v1.0.0-rc.1 && git push origin php-v1.0.0-rc.1
@@ -30,23 +36,26 @@ jobs:
         id: v
         run: echo "version=${GITHUB_REF_NAME#php-v}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish packages/php to mirror
+      - name: Publish packages/php to mirror (tag only)
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
           set -euo pipefail
           ver="${{ steps.v.outputs.version }}"
           work="$(mktemp -d)"
-          git clone "https://x-access-token:${MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git" "$work"
-          find "$work" -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
           cp -R packages/php/. "$work/"
           cp LICENSE "$work/"
           rm -rf "$work/vendor" "$work/build" "$work/.phpunit.cache" "$work/composer.lock"
           cd "$work"
+          # Build the release tree as a self-contained commit and publish it on the
+          # tag ALONE. We deliberately do not clone or push the mirror's default
+          # branch: an installable `main` is exactly what makes Packagist generate a
+          # `dev-main` version. The tag ref keeps the commit reachable forever (FRSH-021).
+          git init -q
           git config user.name "freshen-release"
           git config user.email "release@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git"
           git add -A
-          git commit -m "Release v${ver}"
+          git commit -q -m "Release v${ver}"
           git tag "v${ver}"
-          git push origin HEAD:main
           git push origin "v${ver}"
