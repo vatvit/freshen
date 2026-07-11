@@ -1,0 +1,27 @@
+name: Release Symfony → Packagist mirror
+
+# Triggered by a `symfony-vX.Y.Z` tag. Delegates to the shared reusable publish workflow
+# (.github/workflows/publish-package.yml, FRSH-028), which injects the monorepo
+# homepage/support metadata, publishes packages/symfony tags-only to the mirror, and syncs
+# the mirror README. A copy of release-php.yml with different inputs.
+#
+# SETUP REQUIRED (one-time):
+#   1. Create the mirror repo (default: vatvit/freshen-symfony). Keep its default branch a
+#      composer.json-free placeholder (a README) so no `dev-*` version appears.
+#   2. MIRROR_TOKEN (PAT with push access to the mirror) — shared with the other packages.
+#   3. Register the mirror on Packagist as package vatvit/freshen-symfony.
+#   4. Release by tagging: git tag symfony-v1.0.0-rc.1 && git push origin symfony-v1.0.0-rc.1
+
+on:
+  push:
+    tags: ['symfony-v*']
+
+jobs:
+  publish:
+    uses: ./.github/workflows/publish-package.yml
+    with:
+      package_dir: packages/symfony
+      composer_name: vatvit/freshen-symfony
+      mirror_repo: vatvit/freshen-symfony
+    secrets:
+      MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
