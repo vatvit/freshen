@@ -8,10 +8,15 @@
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-laravel)](https://packagist.org/packages/vatvit/freshen-laravel)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-laravel)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-The Laravel bridge for [Freshen](https://github.com/vatvit/freshen): an auto-discovered
-service provider + facade over the core library. Declare a cache per dataset in
-`config/freshen.php`, reach it with `Freshen::cache('...')`, and get stale-while-revalidate
-reads with cache-stampede prevention and queued async invalidation out of the box.
+The Laravel bridge for [Freshen](https://github.com/vatvit/freshen) brings the caching
+pieces you normally wire up by hand into a service provider + facade: **single-flight**
+recompute so exactly one worker rebuilds a hot key while everyone else is served the last
+good value (**no cache-stampede**); **preemptive refresh** that recomputes an entry *before*
+it goes stale, on TTLs and jitter you control; **structured keys** and **effective delete**
+— genuinely evict one exact key or a whole prefix, atomically and in one round-trip; and
+**built-in metrics** on every hit, miss, and rebuild. Define a cache per dataset in
+`config/freshen.php`, reach it with `Freshen::cache('...')` (async invalidation on the
+queue), and every cache-related decision is explicit and yours.
 
 ## Features
 
