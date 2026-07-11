@@ -10,11 +10,20 @@ Freshen brings together the caching pieces you normally wire up by hand: **singl
 recompute so exactly one worker rebuilds a hot key while everyone else is served the last
 good value (**no cache-stampede**); **preemptive refresh** that recomputes an entry *before*
 it goes stale, on TTLs and jitter you control; **structured keys** and **effective delete**
-— genuinely evict one exact key or a whole prefix, atomically and in one round-trip; and
+— genuinely evict one exact key or a whole prefix, atomically and in a single round-trip in the common case; and
 **built-in metrics** on every hit, miss, and rebuild. Wrap any expensive
 read — a database query, an API call, a rendered fragment — and every cache-related decision
 is explicit and yours. Runs natively on **PHP 8.1 → 8.4**
 ([`COMPATIBILITY.md`](../../COMPATIBILITY.md)).
+
+> **Production readiness.** API and behaviour are stable on the current `1.x` line;
+> backwards-compatible changes only until `2.0` (SemVer). Releases ship from this monorepo
+> on tag and are subtree-split to the read-only Packagist mirror. Quality gate: PHPUnit +
+> PHPStan (level max) across the full **PHP 8.1 → 8.4** matrix in CI, plus a live-Redis
+> integration lane. Breaking changes, deprecations, and support policy are recorded in
+> [`CHANGELOG.md`](../../CHANGELOG.md); the cross-language behaviour contract lives in
+> [`docs/PARITY.md`](../../docs/PARITY.md). No formal LTS window yet — see
+> [`packages/php/todos.md`](./todos.md) §Governance.
 
 ## Features
 
@@ -27,7 +36,7 @@ is explicit and yours. Runs natively on **PHP 8.1 → 8.4**
 - **Structured, hierarchical keys** — `Freshen\Key` is `domain / facet [ / schemaVersion ]
   [ / locale ] / id`, with built-in schema **versioning** and **per-locale** variants.
 - **Effective delete** — genuinely evict one exact key, a whole **prefix**
-  (`domain/facet/*`), or a **batch** of selectors — atomically, in a single round-trip (a
+  (`domain/facet/*`), or a **batch** of selectors — atomically, in a single round-trip in the common case (a
   real delete, not just a TTL bump).
 - **Redis-backed, PSR-6 core** — an atomic Redis driver (single-flight + exact/prefix
   delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
@@ -46,19 +55,67 @@ from declarative config (`composer require` and you're done):
 | Symfony `^6.4 \|\| ^7.0` | [`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony) | [bridge README](../symfony/README.md) |
 | Laravel `^11 \|\| ^12` (PHP 8.2+) | [`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel) | [bridge README](../laravel/README.md) |
 
-## At a glance
+## Quickstart
 
-Once a cache is wired (a few lines — see [Usage](#usage)), reading is two lines and
-you never touch the store, a stampede, or serialisation:
+A complete, runnable cycle in one block: wire a Redis-backed pool, build a `Cache` for one
+dataset, read, invalidate. Drop this into a scratch file against a local Redis
+(`127.0.0.1:6379`) and run it — you'll see a cold `MISS`/`FILL` on the first read and a `HIT`
+on the second.
+
+```bash
+composer require vatvit/freshen-php tedivm/stash
+# needs ext-redis (pecl install redis) + a Redis at 127.0.0.1:6379
+```
+
+```php
+use Freshen\Cache;
+use Freshen\CallableLoader;
+use Freshen\DefaultJitter;
+use Freshen\Driver\Redis as FreshenRedis;
+use Freshen\Key;
+use Freshen\SyncMode;
+
+$redis = new \Redis();
+$redis->connect('127.0.0.1', 6379);
+
+// 1) A Stash PSR-6 pool over Freshen's Redis driver (atomic single-flight + exact delete).
+$pool = new \Stash\Pool(new FreshenRedis(['connection' => $redis]));
+
+// 2) One Cache per dataset — here, "product / top-sellers". The loader is the source of truth.
+$loads = 0;
+$topSellersCache = new Cache(
+    $pool,
+    new CallableLoader(function (Key $k) use (&$loads) {  // your DB/API call
+        $loads++;
+        return ['product-1', 'product-2'];
+    }),
+    hardTtlSec: 3600,
+    precomputeSec: 60,
+    jitter: new DefaultJitter(15),   // ±15% TTL spread so sibling keys don't all expire at once
+);
+
+// 3) Read. Cold → loader runs, stores, returns (MISS → FILL). Warm → instant HIT.
+$key = new Key('product', 'top-sellers', ['category' => 456], locale: 'en');
+$r1 = $topSellersCache->get($key);   // MISS → FILL: loader invoked, value stored ($loads = 1)
+$r2 = $topSellersCache->get($key);   // HIT: served from cache, loader not called  ($loads still 1)
+
+// 4) Invalidate when the dataset changes. SYNC here so no PSR-14 dispatcher is needed;
+//    the default ASYNC mode fires a PSR-14 event (see "How it wires into your app").
+$topSellersCache->invalidate($key, SyncMode::SYNC);  // this key + its subtree, gone
+$r3 = $topSellersCache->get($key);   // MISS → FILL again — loader recomputes ($loads = 2)
+```
+
+Once a cache is wired, reading is two lines and you never touch the store, a stampede, or
+serialisation:
 
 ```php
 use Freshen\Key;
 
-$item = $topSellersCache->get(
+$result = $topSellersCache->get(
     new Key('product', 'top-sellers', ['category' => 456, 'brand' => 'Apple'], locale: 'en'),
 );
 
-return $item->isMiss() ? [] : $item->value();   // value() returns what the loader produced — here, an array
+return $result->isMiss() ? [] : $result->value();   // value() returns what the loader produced — here, an array
 ```
 
 On a miss, `$topSellersCache` calls your loader, stores the result, and returns it —
@@ -78,6 +135,18 @@ composer require vatvit/freshen-php
 Requires a [PSR-6](https://www.php-fig.org/psr/psr-6/) cache pool
 ([Stash](https://github.com/tedious/Stash)). `ext-redis` is *suggested* for a Redis
 backend.
+
+## Contents
+
+- [Quickstart](#quickstart) — copy-paste a working MISS→FILL / HIT / invalidate cycle
+- [Features](#features)
+- [Framework bridges](#framework-bridges) — Symfony & Laravel
+- [Install](#install)
+- [Usage](#usage) — backend, per-dataset cache, invalidate/refresh, async, metrics, fail-open, wiring
+- [Framework integration](#framework-integration) — bridges vs manual wiring
+- [Escape hatch & limitations](#escape-hatch--limitations)
+- [Security](#security) · [Develop / contribute](#develop--contribute) · [License](#license)
+- [Open TODOs](./todos.md) — tracked gaps for future improvement
 
 ## Usage
 
