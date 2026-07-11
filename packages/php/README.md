@@ -1,17 +1,18 @@
 # Freshen (PHP)
 
+> **Instant reads, no cache stampedes.** Stale-while-revalidate caching for PHP — serve
+> cached data instantly, refresh it in the background, and let just one worker rebuild a
+> hot key.
+
 [![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-php)](https://packagist.org/packages/vatvit/freshen-php)
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-php)](https://packagist.org/packages/vatvit/freshen-php)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-php)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-php); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
-
-PHP implementation of **Freshen** — a **stale-while-revalidate** cache with
-**cache-stampede prevention** (single-flight leader/follower recompute + jittered
-TTLs) and **built-in metrics**.
-
-Runs natively on **PHP 8.1 → 8.4** (single source, no downgrade build). See
-[`COMPATIBILITY.md`](../../COMPATIBILITY.md).
+Wrap any expensive read — a database query, an API call, a rendered fragment — and Freshen
+serves it from cache in microseconds, quietly recomputing in the background before it goes
+stale. When a hot key *does* expire, **exactly one** worker rebuilds it while everyone else
+keeps getting the last good value. Runs natively on **PHP 8.1 → 8.4**
+([`COMPATIBILITY.md`](../../COMPATIBILITY.md)).
 
 ## Features
 
@@ -61,13 +62,8 @@ for you), and `isMiss()` even tells a cached `null` apart from an absent entry.
 
 ## Install
 
-> **Pre-1.0 — release candidate.** The public API may still change before `1.0.0`
-> (see [`COMPATIBILITY.md`](../../COMPATIBILITY.md)). Until a stable tag ships,
-> require the RC explicitly (Composer's default `minimum-stability` is `stable`, so
-> a bare `require` won't resolve an RC):
-
 ```bash
-composer require vatvit/freshen-php:^1.0@rc      # or a pinned :1.0.0-rc.2
+composer require vatvit/freshen-php
 ```
 
 Requires a [PSR-6](https://www.php-fig.org/psr/psr-6/) cache pool
@@ -427,6 +423,13 @@ database — every key, not just cached ones — so Freshen does not expose it. 
 by key or prefix with `invalidate()` / `invalidateExact()` instead.
 
 The cross-language behaviour contract is [`docs/PARITY.md`](../../docs/PARITY.md).
+
+## Security
+
+Tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-php)
+— run `composer audit` to check your install. Report vulnerabilities privately via
+[GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); the full
+policy is in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
 
 ## Develop / contribute
 

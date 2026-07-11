@@ -1,16 +1,17 @@
 # Freshen — Laravel bridge
 
+> **Drop-in stale-while-revalidate caching for Laravel.** `composer require`, publish one
+> config, and resolve caches by name through the `Freshen` facade — with cache-stampede
+> prevention and queued async invalidation.
+
 [![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-laravel)](https://packagist.org/packages/vatvit/freshen-laravel)
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-laravel)](https://packagist.org/packages/vatvit/freshen-laravel)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-laravel)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-laravel); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
-
-`vatvit/freshen-laravel` is the drop-in Laravel package for
-[Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
-stampede prevention. It wires the manual pool/loader/listener setup from the core README
-into a service provider + config file: `composer require`, publish the config, define one
-cache per dataset, and resolve them by name — with async invalidation already on the queue.
+The Laravel bridge for [Freshen](https://github.com/vatvit/freshen): an auto-discovered
+service provider + facade over the core library. Declare a cache per dataset in
+`config/freshen.php`, reach it with `Freshen::cache('...')`, and get stale-while-revalidate
+reads with cache-stampede prevention and queued async invalidation out of the box.
 
 ## Features
 
@@ -184,6 +185,13 @@ Freshen::cache('top_sellers')->invalidate($key, SyncMode::SYNC);   // runs now, 
 
 Each job carries its **target cache name**, so async invalidation is routed to exactly
 the right cache (no cross-cache fan-out).
+
+## Security
+
+Tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-laravel)
+— run `composer audit` to check your install. Report vulnerabilities privately via
+[GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); the full
+policy is in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
 
 ## Versioning
 

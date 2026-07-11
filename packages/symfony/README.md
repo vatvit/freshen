@@ -1,17 +1,17 @@
 # Freshen — Symfony bundle
 
+> **Drop-in stale-while-revalidate caching for Symfony.** `composer require` + a little
+> YAML gives you autowired, per-dataset caches with cache-stampede prevention and async
+> invalidation — no boilerplate.
+
 [![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-symfony)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-symfony); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
-
-`vatvit/freshen-symfony` is the drop-in Symfony bundle for
-[Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
-stampede prevention. It wires the manual pool/loader/listener setup from the core
-README into declarative config: `composer require` + a little YAML gives you one autowired,
-per-dataset `Freshen\Cache` per data structure, injected by name, with async invalidation
-already registered.
+The Symfony bundle for [Freshen](https://github.com/vatvit/freshen): it turns the core
+library's manual pool/loader/listener wiring into declarative config. Declare a cache per
+dataset in YAML, inject it **by name**, and get stale-while-revalidate reads with
+cache-stampede prevention and pre-wired async invalidation out of the box.
 
 ## Features
 
@@ -183,6 +183,13 @@ $this->topSellersCache->invalidate($key, SyncMode::SYNC);   // invalidates now, 
 > handler. Where a cache doesn't hold that key it's a harmless no-op, but caches that
 > use **colliding key namespaces** would cross-invalidate. Give each cache a distinct
 > `Key` domain/facet (they naturally differ per dataset) and this is a non-issue.
+
+## Security
+
+Tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-symfony)
+— run `composer audit` to check your install. Report vulnerabilities privately via
+[GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); the full
+policy is in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
 
 ## Versioning
 
