@@ -140,7 +140,7 @@ the right cache (no cross-cache fan-out).
 ## Versioning
 
 Independent SemVer, released as `laravel-vX.Y.Z`. Depends on `vatvit/freshen-php` via
-`^1.0@rc` (→ `^1.0` once core is stable). A core patch/minor needs no bridge release; a
+`^1.0`. A core patch/minor needs no bridge release; a
 core major does. See the monorepo `RELEASING.md`.
 
 **Requires PHP 8.2+ and Laravel 11 or 12.** (Laravel 10 — the only 8.1-compatible line —

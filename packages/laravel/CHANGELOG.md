@@ -21,6 +21,6 @@ Releases are tagged `laravel-vX.Y.Z` in the monorepo.
   invalidation runs on a worker off the request; a `sync` queue connection runs it inline.
 - Publishable config (`php artisan vendor:publish --tag=freshen-config`).
 - Live-Redis integration lane (`scripts/laravel-it.sh`) and CI (`ci-laravel.yml`).
-- Requires `vatvit/freshen` `^1.0@rc`; Laravel `^11 || ^12`; PHP `>= 8.2`. (Laravel 10 —
+- Requires `vatvit/freshen-php` `^1.0`; Laravel `^11 || ^12`; PHP `>= 8.2`. (Laravel 10 —
   the only PHP 8.1 line — is EOL and blocked by composer security advisories, so the
   bridge floor is PHP 8.2 / Laravel 11.)
