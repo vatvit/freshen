@@ -49,6 +49,10 @@ export type { RedisLike, RedisSetOptions, RedisScanPage } from './driver/redis-l
 export type { Clock } from './clock.js';
 export { systemClock } from './clock.js';
 
+// Observability — lifecycle hooks + metrics-as-subscriber
+export { HookBus, metricsSubscriber } from './hooks.js';
+export type { HookEvent, HookListener, GetOutcome } from './hooks.js';
+
 // Async model (events; handler + bindings arrive with FRSH-045)
 export { AsyncEvent, InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
 

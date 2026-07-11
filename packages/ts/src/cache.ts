@@ -2,6 +2,8 @@ import type { Clock } from './clock.js';
 import { systemClock } from './clock.js';
 import { AsyncDispatcherError, InvalidArgumentError } from './errors.js';
 import { InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
+import type { HookListener } from './hooks.js';
+import { HookBus, metricsSubscriber } from './hooks.js';
 import type { Entry } from './item.js';
 import { softExpiresAt } from './item.js';
 import type { Key } from './key.js';
@@ -43,8 +45,10 @@ export interface CacheOptions<T = unknown> {
   singleFlight?: SingleFlight;
   /** Event dispatcher for ASYNC ops (required only for async). */
   dispatcher?: EventDispatcher;
-  /** Observability sink. */
+  /** Observability sink — wired as a built-in hook subscriber (PARITY §10). */
   metrics?: Metrics;
+  /** Extra lifecycle-hook listeners (observe/extend; fire-and-forget). */
+  hooks?: HookListener[];
   /** Last-resort behaviour under contention. Default `true`. */
   failOpen?: boolean;
   /** Time source (unix seconds). Default: system clock. */
@@ -90,7 +94,7 @@ export class Cache<T = unknown> {
   private readonly jitter: Jitter;
   private readonly singleFlight: SingleFlight;
   private readonly dispatcher?: EventDispatcher;
-  private readonly metrics?: Metrics;
+  private readonly hooks = new HookBus();
   private readonly failOpen: boolean;
   private readonly clock: Clock;
   private readonly graceSec: number;
@@ -108,6 +112,7 @@ export class Cache<T = unknown> {
       singleFlight,
       dispatcher,
       metrics,
+      hooks,
       failOpen = true,
       clock = systemClock,
       graceSec = 0,
@@ -133,7 +138,13 @@ export class Cache<T = unknown> {
     this.jitter = jitter ?? new DefaultJitter();
     this.singleFlight = singleFlight ?? new InProcessSingleFlight();
     this.dispatcher = dispatcher;
-    this.metrics = metrics;
+    // Metrics are just a built-in hook subscriber — no separate emit path.
+    if (metrics !== undefined) {
+      this.hooks.subscribe(metricsSubscriber(metrics));
+    }
+    for (const listener of hooks ?? []) {
+      this.hooks.subscribe(listener);
+    }
     this.failOpen = failOpen;
     this.clock = clock;
     this.graceSec = graceSec;
@@ -157,7 +168,7 @@ export class Cache<T = unknown> {
       // Tier 1 (pure fresh): before the soft boundary, everyone is served fresh
       // with no contention and no recompute.
       if (now < soft) {
-        this.metrics?.inc('cache_hit', { state: 'fresh' });
+        this.hooks.emit({ type: 'get', key, outcome: 'fresh' });
         return ValueResult.hit(entry.value, entry.createdAt, soft);
       }
 
@@ -171,10 +182,10 @@ export class Cache<T = unknown> {
       // within the precompute window (tier 1, non-elected), STALE once past hard
       // expiry (tier 3) — no blocking either way.
       if (now < entry.hardExpiresAt) {
-        this.metrics?.inc('cache_hit', { state: 'fresh' });
+        this.hooks.emit({ type: 'get', key, outcome: 'fresh' });
         return ValueResult.hit(entry.value, entry.createdAt, soft);
       }
-      this.metrics?.inc('cache_hit', { state: 'stale' });
+      this.hooks.emit({ type: 'get', key, outcome: 'stale' });
       return ValueResult.stale(entry.value, entry.createdAt, soft);
     }
 
@@ -188,7 +199,7 @@ export class Cache<T = unknown> {
     // (tier 4), else fail open/closed (tier 5).
     const fresh = await this.waitForFresh(keyStr);
     if (fresh !== undefined) {
-      this.metrics?.inc('cache_hit', { state: 'fresh_after_sleep' });
+      this.hooks.emit({ type: 'get', key, outcome: 'fresh_after_sleep' });
       return ValueResult.hit(fresh.value, fresh.createdAt, softExpiresAt(fresh, this.precomputeSec));
     }
     return this.failOpenOrMiss(key);
@@ -197,7 +208,12 @@ export class Cache<T = unknown> {
   /** Write/overwrite a value with a fresh (jittered) hard TTL (PARITY §3.1). */
   async put(key: Key, value: T): Promise<void> {
     await this.save(key, value, this.clock.now());
-    this.metrics?.inc('cache_put');
+    this.hooks.emit({ type: 'put', key });
+  }
+
+  /** Subscribe a lifecycle-hook listener; returns an unsubscribe function (PARITY §10). */
+  subscribe(listener: HookListener): () => void {
+    return this.hooks.subscribe(listener);
   }
 
   /** Hierarchical delete by prefix/key subtree (PARITY §8). Defaults to ASYNC. */
@@ -211,7 +227,7 @@ export class Cache<T = unknown> {
         continue;
       }
       await this.store.deletePrefix(selector.toString());
-      this.metrics?.inc('cache_invalidate_hierarchical');
+      this.hooks.emit({ type: 'invalidate', selector, hierarchical: true });
     }
   }
 
@@ -238,8 +254,8 @@ export class Cache<T = unknown> {
         await this.store.deleteExact(key.toString());
       }
     }
-    for (let i = 0; i < list.length; i++) {
-      this.metrics?.inc('cache_invalidate');
+    for (const key of list) {
+      this.hooks.emit({ type: 'invalidate', selector: key, hierarchical: false });
     }
   }
 
@@ -251,6 +267,7 @@ export class Cache<T = unknown> {
         continue;
       }
       await this.put(key, await this.loader.resolve(key));
+      this.hooks.emit({ type: 'refresh', key });
     }
   }
 
@@ -269,7 +286,7 @@ export class Cache<T = unknown> {
     try {
       const value = await this.loader.resolve(key);
       await this.save(key, value, now);
-      this.metrics?.inc('cache_fill');
+      this.hooks.emit({ type: 'get', key, outcome: 'fill' });
       return ValueResult.hit(value, now, this.postWriteSoft(now));
     } finally {
       await this.singleFlight.release(key.toString());
@@ -313,10 +330,10 @@ export class Cache<T = unknown> {
     if (this.failOpen) {
       const value = await this.loader.resolve(key);
       const now = this.clock.now();
-      this.metrics?.inc('cache_miss', { cause: 'precompute_race' });
+      this.hooks.emit({ type: 'get', key, outcome: 'fail_open' });
       return ValueResult.hit(value, now, this.postWriteSoft(now));
     }
-    this.metrics?.inc('cache_miss', { cause: 'precompute_race_fail_closed' });
+    this.hooks.emit({ type: 'get', key, outcome: 'miss' });
     return ValueResult.miss<T>();
   }
 
