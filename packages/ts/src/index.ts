@@ -40,6 +40,8 @@ export { MemoryStore } from './store/memory-store.js';
 export { KeyvStore } from './store/keyv-store.js';
 export type { KeyvLike } from './store/keyv-store.js';
 export { InProcessSingleFlight } from './single-flight.js';
+export { withCodec, gzipJsonCodec } from './codec.js';
+export type { Codec } from './codec.js';
 
 // Redis driver (client-agnostic; inject an ioredis/node-redis adapter)
 export { RedisDriver } from './driver/redis-driver.js';
