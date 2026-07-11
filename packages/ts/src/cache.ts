@@ -262,6 +262,43 @@ export class Cache<T = unknown> {
     return this.failOpenOrMiss(key);
   }
 
+  /**
+   * Batch read (FRSH-049): fetch many entries in ONE store round-trip (Redis `MGET`
+   * via the driver; N reads on a non-batch backend) instead of N sequential `get()`s.
+   * Returns one {@link ValueResult} per input key, order-preserving.
+   *
+   * Only the fast path (a fresh hit) is served from the batch read; any key that is
+   * missing, soft-expired, negative, or in stale-if-error backoff falls through to the
+   * full single-key `get()` — so single-flight, serve-stale, negative caching and the
+   * loader-outcome rules are **not** weakened or duplicated. When a coalescing loader
+   * is wired (FRSH-050), those per-key recomputes batch into one source round-trip.
+   */
+  async getMany(keys: Key[]): Promise<Array<ValueResult<T>>> {
+    if (keys.length === 0) {
+      return [];
+    }
+    const keyStrs = keys.map((key) => key.toString());
+    const entries = isDriver(this.store)
+      ? await this.store.readMany(keyStrs)
+      : await Promise.all(keyStrs.map((k) => this.store.read(k)));
+
+    return Promise.all(
+      keys.map((key, i) => {
+        const entry = entries[i];
+        const now = this.clock.now();
+        if (entry !== undefined && entry.negative !== true) {
+          const soft = softExpiresAt(entry, this.precomputeSec);
+          if (now < soft) {
+            this.hooks.emit({ type: 'get', key, outcome: 'fresh' });
+            return Promise.resolve(ValueResult.hit(entry.value, entry.createdAt, soft));
+          }
+        }
+        // Not a fresh hit — run the full state machine for this key.
+        return this.get(key);
+      }),
+    );
+  }
+
   /** Write/overwrite a value with a fresh (jittered) hard TTL (PARITY §3.1). */
   async put(key: Key, value: T): Promise<void> {
     await this.save(key, value, this.clock.now());

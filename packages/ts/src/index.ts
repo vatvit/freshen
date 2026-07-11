@@ -34,6 +34,7 @@ export type {
 export { isDriver } from './ports.js';
 export { CallableLoader, toLoader } from './loader.js';
 export type { LoaderFn } from './loader.js';
+export { CoalescingLoader, loopBatchLoader } from './batch-loader.js';
 export { DefaultJitter } from './jitter.js';
 export { MemoryStore } from './store/memory-store.js';
 export { KeyvStore } from './store/keyv-store.js';
