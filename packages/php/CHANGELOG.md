@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+
+## [1.0.1] - 2026-07-11
 ### Changed
 - README first screen reworked to lead with the value proposition — a tagline + benefit
   hook + a **Features** list (stale-while-revalidate, stampede prevention, async
