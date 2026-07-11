@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `vatvit/freshen` (PHP) are documented here.
+All notable changes to `vatvit/freshen-php` (PHP) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -15,6 +15,10 @@ Releases are tagged `php-vX.Y.Z` in the monorepo.
   reporting), plus a repo-level [SECURITY.md](../../SECURITY.md) policy (FRSH-029).
 
 ### Changed
+- **Composer package renamed `vatvit/freshen` → `vatvit/freshen-php`** for naming
+  symmetry with the bridges (`vatvit/freshen-symfony`, `vatvit/freshen-laravel`) and to
+  match the mirror repo name. Update your `require` to `vatvit/freshen-php`. The old
+  `vatvit/freshen` package covers only pre-1.0 release candidates (FRSH-032).
 - README "Framework integration" now leads with the drop-in bridges
   (`vatvit/freshen-symfony`, `vatvit/freshen-laravel`) — `composer require` and you're
   done — with the hand-wiring kept as a condensed "Manual wiring" fallback (FRSH-025).
