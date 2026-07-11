@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+### Added
+- README now opens with Packagist version/PHP/license badges and a **Security** note
+  (Packagist advisory DB + `composer audit` + private GitHub Security Advisories
+  reporting), plus a repo-level [SECURITY.md](../../SECURITY.md) policy (FRSH-029).
+
 ### Changed
 - README "Framework integration" now leads with the drop-in bridges
   (`vatvit/freshen-symfony`, `vatvit/freshen-laravel`) — `composer require` and you're

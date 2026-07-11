@@ -114,6 +114,31 @@ extension builds definitions, fully unit-covered), `src/FreshenManager.php` for 
 (it reuses Laravel's live phpredis client). Raise the floor as coverage improves; never
 lower it to make CI pass.
 
+## Package README — badges & security block
+
+Every package README opens with the same block, directly under the H1, so package health
+and security posture are visible on GitHub **and** on the Packagist/npm page. Keep it DRY
+by copying this shape for a new package (swap the package name); **use absolute URLs** so
+the links resolve from both the monorepo and the published mirror:
+
+- **Packagist packages:** version + PHP-version + license shields, each linking to the
+  package's Packagist page, then a one-line **Security** note — Packagist advisory DB +
+  `composer audit` + private [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories)
+  reporting + a link to [SECURITY.md](SECURITY.md).
+
+  ```markdown
+  [![Packagist Version](https://img.shields.io/packagist/v/vatvit/<pkg>)](https://packagist.org/packages/vatvit/<pkg>)
+  [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/<pkg>)](https://packagist.org/packages/vatvit/<pkg>)
+  [![License](https://img.shields.io/packagist/l/vatvit/<pkg>)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+  ```
+
+- **npm package:** the `npm/v` + `npm/l` shields and an `npm audit` security note.
+
+Security policy is single-source in [SECURITY.md](SECURITY.md) (covers every package);
+the per-README note just links to it. The Packagist "Security Advisories" section each
+badge links to is populated automatically by Packagist from the advisory DB — nothing to
+maintain per release.
+
 ## Releasing
 
 See [RELEASING.md](RELEASING.md). Tags are `php-vX.Y.Z` / `ts-vX.Y.Z` /

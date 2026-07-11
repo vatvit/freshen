@@ -1,5 +1,11 @@
 # Freshen (PHP)
 
+[![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen)](https://packagist.org/packages/vatvit/freshen)
+[![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen)](https://packagist.org/packages/vatvit/freshen)
+[![License](https://img.shields.io/packagist/l/vatvit/freshen)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+
+> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
+
 PHP implementation of **Freshen** — a **stale-while-revalidate** cache with
 **cache-stampede prevention** (single-flight leader/follower recompute + jittered
 TTLs) and **built-in metrics**.

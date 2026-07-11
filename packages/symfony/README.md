@@ -1,5 +1,11 @@
 # Freshen — Symfony bundle
 
+[![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
+[![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
+[![License](https://img.shields.io/packagist/l/vatvit/freshen-symfony)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+
+> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-symfony); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
+
 `vatvit/freshen-symfony` is the drop-in Symfony bundle for
 [Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
 stampede prevention. It wires the manual pool/loader/listener setup from the core

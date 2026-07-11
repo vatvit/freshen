@@ -1,5 +1,11 @@
 # Freshen — Laravel bridge
 
+[![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-laravel)](https://packagist.org/packages/vatvit/freshen-laravel)
+[![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-laravel)](https://packagist.org/packages/vatvit/freshen-laravel)
+[![License](https://img.shields.io/packagist/l/vatvit/freshen-laravel)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+
+> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-laravel); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
+
 `vatvit/freshen-laravel` is the drop-in Laravel package for
 [Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
 stampede prevention. It wires the manual pool/loader/listener setup from the core README
