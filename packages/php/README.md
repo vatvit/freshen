@@ -1,5 +1,11 @@
 # Freshen (PHP)
 
+[![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen)](https://packagist.org/packages/vatvit/freshen)
+[![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen)](https://packagist.org/packages/vatvit/freshen)
+[![License](https://img.shields.io/packagist/l/vatvit/freshen)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+
+> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
+
 PHP implementation of **Freshen** — a **stale-while-revalidate** cache with
 **cache-stampede prevention** (single-flight leader/follower recompute + jittered
 TTLs) and **built-in metrics**.
@@ -335,115 +341,58 @@ standards you already use, so wire it like any other service:
 
 ## Framework integration
 
-Wiring sketches — correct in shape, adapt names/versions to your app. Three things
-hold everywhere: (1) Freshen needs a **Stash** pool (not the framework's own
-cache/PSR-6 pool); (2) async needs a **PSR-14** dispatcher — **Symfony's is** PSR-14,
-**Laravel's is not**; and (3) **a `Cache` is per-dataset** — one loader, its own
-TTLs. A second dataset (e.g. categories) is a second loader + a second cache service
-with its *own* config; name things accordingly. Drop-in bridge packages that hide
-this wiring are planned (see the project tasks).
+**Use a bridge — `composer require` and you're done.** Drop-in packages wire the pool,
+loader, jitter and async listeners from declarative config so you don't hand-wire
+anything:
 
-### Symfony
+| Framework | Package | Docs |
+|-----------|---------|------|
+| Symfony `^6.4 \|\| ^7.0` | [`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony) | [bridge README](../symfony/README.md) |
+| Laravel `^11 \|\| ^12` (PHP 8.2+) | [`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel) | [bridge README](../laravel/README.md) |
 
-Wire it **declaratively**: every collaborator is a service, config comes from
-dataset-specific env, and `event_dispatcher` (PSR-14) is injected so async works out
-of the box. Your **loader is a first-class service**:
+Three principles hold whichever path you take: (1) Freshen needs a **Stash** pool (not the
+framework's own PSR-6 pool); (2) async needs a **PSR-14** dispatcher — **Symfony's is**
+PSR-14, **Laravel's is not** (its bridge ships a PSR-14 adapter + queue); and (3) **a
+`Cache` is per-dataset** — one loader, its own TTLs. A second dataset is a second loader +
+a second cache, each with its own config.
 
-```php
-// src/Cache/TopSellersLoader.php — this service IS the "top sellers" dataset
-namespace App\Cache;
+If you're **not** on those frameworks (or want to wire it by hand), see
+[Manual wiring](#manual-wiring) below.
 
-use App\Repository\ProductRepository;
-use Freshen\Interface\LoaderInterface;
-use Freshen\Interface\KeyInterface;
+### Manual wiring
 
-final class TopSellersLoader implements LoaderInterface
-{
-    public function __construct(private ProductRepository $repo) {}   // inject your own deps
-
-    public function resolve(KeyInterface $key): mixed
-    {
-        return $this->repo->topSellers($key->id());                  // your query
-    }
-}
-```
-
-```yaml
-# config/services.yaml
-services:
-    # backend: a Redis client → Freshen's driver → a Stash pool, each a service (shared by all caches)
-    freshen.redis:
-        class: Redis
-        calls: [ [connect, ['%env(REDIS_HOST)%', '%env(int:REDIS_PORT)%']] ]
-    Freshen\Driver\Redis:
-        arguments: [ { connection: '@freshen.redis' } ]   # reuse the client; or use `servers` options
-    Stash\Pool:
-        arguments: [ '@Freshen\Driver\Redis' ]
-    Freshen\DefaultJitter:
-        arguments: [ '%env(int:FRESHEN_JITTER_PCT)%' ]
-
-    # your loader for THIS dataset
-    App\Cache\TopSellersLoader: ~
-
-    # one cache PER dataset — named, with its OWN ttl/precompute env (TOP_SELLERS_*)
-    freshen.cache.top_sellers:
-        class: Freshen\Cache
-        arguments:
-            $pool: '@Stash\Pool'
-            $loader: '@App\Cache\TopSellersLoader'
-            $hardTtlSec: '%env(int:TOP_SELLERS_HARD_TTL)%'
-            $precomputeSec: '%env(int:TOP_SELLERS_PRECOMPUTE)%'
-            $jitter: '@Freshen\DefaultJitter'
-            $eventDispatcher: '@event_dispatcher'         # Symfony's dispatcher IS PSR-14
-        # inject where needed:  #[Autowire(service: 'freshen.cache.top_sellers')] Cache $topSellers
-
-    # async worker for this cache: one listener per event class
-    freshen.handler.top_sellers:
-        class: Freshen\AsyncHandler
-        arguments: [ '@freshen.cache.top_sellers' ]
-        tags:
-            - { name: kernel.event_listener, event: Freshen\InvalidateEvent,      method: handleInvalidation }
-            - { name: kernel.event_listener, event: Freshen\InvalidateExactEvent, method: handleInvalidateExact }
-            - { name: kernel.event_listener, event: Freshen\RefreshEvent,         method: handleRefresh }
-
-    # a second dataset = another loader + another `freshen.cache.categories` with CATEGORIES_* env
-```
-
-### Laravel
-
-Register the shared backend **once**, then a thin cache binding per dataset —
-don't rebuild the pool inside each closure. Laravel's event dispatcher is **not**
-PSR-14, so use `SyncMode::SYNC` (below), or supply a PSR-14 dispatcher and wire
-`AsyncHandler` for the async path.
+On Symfony or Laravel, prefer the **bridge** (above) — it does all of this for you. Wire it
+by hand only for another framework, a plain PSR-6 setup, or full control. A `Cache` composes
+four things; build them as shared services and inject a cache **per dataset**:
 
 ```php
-// app/Providers/FreshenServiceProvider.php  (register method)
-use App\Cache\TopSellersLoader;              // your LoaderInterface service (as in the Symfony example)
-use Freshen\{Cache, DefaultJitter};
+use Freshen\{Cache, DefaultJitter, SyncMode};
 use Freshen\Driver\Redis as FreshenRedis;
 
-// shared services — registered once, reused by every cache (not built inline per dataset)
-$this->app->singleton(\Stash\Pool::class, fn ($app) =>
-    new \Stash\Pool(new FreshenRedis(['connection' => $app->make('redis')->connection()->client()])),
-);
-$this->app->singleton(DefaultJitter::class, fn () =>
-    new DefaultJitter((int) config('freshen.jitter_pct', 15)),
+// shared backend — build ONCE, reuse for every cache (don't rebuild the pool per dataset)
+$pool   = new \Stash\Pool(new FreshenRedis(['connection' => $redis]));  // $redis: a connected \Redis
+$jitter = new DefaultJitter(15);                                        // TTL jitter percent
+
+// one cache PER dataset: its own loader (implements Freshen\Interface\LoaderInterface) + TTLs
+$topSellers = new Cache(
+    $pool,
+    $topSellersLoader,        // your LoaderInterface for THIS dataset
+    hardTtlSec: 3600,
+    precomputeSec: 60,        // soft window before hard TTL
+    jitter: $jitter,
+    eventDispatcher: $psr14,  // a PSR-14 dispatcher for async; omit → drive with SyncMode::SYNC
 );
 
-// one thin binding PER dataset — it just COMPOSES the shared pool + its own autowired loader + its config
-$this->app->singleton('freshen.top_sellers', fn ($app) => new Cache(
-    $app->make(\Stash\Pool::class),
-    $app->make(TopSellersLoader::class),                // autowired with its own deps (e.g. a repository)
-    hardTtlSec: (int) config('freshen.top_sellers.hard_ttl', 3600),
-    precomputeSec: (int) config('freshen.top_sellers.precompute', 60),
-    jitter: $app->make(DefaultJitter::class),
-    // no eventDispatcher → drive it synchronously (below); async needs a PSR-14 dispatcher
-));
-
-// use it:  app('freshen.top_sellers')->get($key);
-//          app('freshen.top_sellers')->refresh($key, \Freshen\SyncMode::SYNC);
-// another dataset → a second `freshen.categories` binding reusing the SAME shared pool.
+$topSellers->get($key);
+$topSellers->refresh($key, SyncMode::SYNC);   // no dispatcher? use SYNC; else async is the default
 ```
+
+For async invalidation, register one `Freshen\AsyncHandler($cache)` per cache on a PSR-14
+dispatcher, routing each event class to its method (`InvalidateEvent → handleInvalidation`,
+`InvalidateExactEvent → handleInvalidateExact`, `RefreshEvent → handleRefresh`). **Symfony's
+`event_dispatcher` is PSR-14; Laravel's is not** — which is exactly what the bridges handle
+(Symfony natively, Laravel via a PSR-14 adapter + queue). A second dataset is a second
+loader + a second `Cache` reusing the same shared pool.
 
 ## Escape hatch & limitations
 

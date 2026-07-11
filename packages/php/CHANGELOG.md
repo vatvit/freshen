@@ -8,6 +8,17 @@ Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-11
+### Added
+- README now opens with Packagist version/PHP/license badges and a **Security** note
+  (Packagist advisory DB + `composer audit` + private GitHub Security Advisories
+  reporting), plus a repo-level [SECURITY.md](../../SECURITY.md) policy (FRSH-029).
+
+### Changed
+- README "Framework integration" now leads with the drop-in bridges
+  (`vatvit/freshen-symfony`, `vatvit/freshen-laravel`) — `composer require` and you're
+  done — with the hand-wiring kept as a condensed "Manual wiring" fallback (FRSH-025).
+
 ## [1.0.0-rc.3] - 2026-07-10
 ### Changed
 - `invalidateExact([...], SyncMode::SYNC)` now issues a single `DEL` for the whole

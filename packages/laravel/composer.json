@@ -1,0 +1,56 @@
+{
+    "name": "vatvit/freshen-laravel",
+    "description": "Laravel bridge for Freshen — drop-in stale-while-revalidate cache with stampede prevention.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["cache", "stale-while-revalidate", "swr", "stampede", "laravel", "freshen"],
+    "require": {
+        "php": ">=8.2",
+        "vatvit/freshen": "^1.0@rc",
+        "psr/event-dispatcher": "^1.0",
+        "illuminate/support": "^11.0 || ^12.0",
+        "illuminate/contracts": "^11.0 || ^12.0"
+    },
+    "suggest": {
+        "ext-redis": "To use the Redis-backed driver (Freshen\\Driver\\Redis)."
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5 || ^11.0",
+        "phpstan/phpstan": "^1.11",
+        "orchestra/testbench": "^9.0 || ^10.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Freshen\\Bridge\\Laravel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Freshen\\Bridge\\Laravel\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Freshen\\Bridge\\Laravel\\FreshenServiceProvider"
+            ],
+            "aliases": {
+                "Freshen": "Freshen\\Bridge\\Laravel\\Facades\\Freshen"
+            }
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:integration": "phpunit --testsuite integration",
+        "analyse": "phpstan analyse"
+    },
+    "scripts-descriptions": {
+        "test": "Run the unit suite (config + container wiring + queue routing; no live backends).",
+        "test:integration": "Boot a Laravel app against live Redis; needs ext-redis (see scripts/laravel-it.sh).",
+        "analyse": "PHPStan level max."
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "prefer-stable": true
+}

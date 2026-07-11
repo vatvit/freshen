@@ -1,0 +1,78 @@
+name: CI (Laravel)
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['packages/laravel/**', '.github/workflows/ci-laravel.yml']
+  pull_request:
+    paths: ['packages/laravel/**', '.github/workflows/ci-laravel.yml']
+
+defaults:
+  run:
+    working-directory: packages/laravel
+
+jobs:
+  # Unit suite (config + container wiring + queue routing) across every supported PHP version.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - run: composer update --prefer-dist --no-progress
+      - run: composer test
+
+  # Static analysis once, on the newest version.
+  analyse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - run: composer update --prefer-dist --no-progress
+      - run: composer analyse
+
+  # Coverage floor gate (REQUIREMENTS §4: tracked, no regression) — mirrors core.
+  # src/FreshenManager.php reuses Laravel's live phpredis client to build the pool +
+  # Cache, so it is exercised by the integration lane and excluded from the unit
+  # denominator (exactly like Freshen\Driver\Redis in core).
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+      - run: composer update --prefer-dist --no-progress
+      - run: vendor/bin/phpunit --coverage-clover build/clover.xml
+      - run: php ../../scripts/php-coverage-gate.php build/clover.xml 90 'src/FreshenManager.php'
+
+  # Live-Redis lane: boot a real Laravel app against a real Redis and prove the
+  # cold-key fill + async invalidate-via-queue path end-to-end (ext-redis).
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: redis
+          coverage: none
+      - run: composer update --prefer-dist --no-progress
+      - run: composer test:integration
+        env:
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379

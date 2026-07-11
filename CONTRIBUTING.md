@@ -62,9 +62,87 @@ scripts/ts-test.sh 16            # smoke-load the dist on one version
 
 Quality gates: ESLint + `tsc --strict` + Vitest coverage.
 
+## Framework bridges — `packages/symfony`, `packages/laravel`
+
+The bridges are **thin glue**: config → DI → services. Each ships its own PHP toolchain
+(the core `packages/php` is the reference library they wire up).
+
+```bash
+scripts/symfony-test.sh          # matrix 8.1–8.4: phpunit (unit) + phpstan max
+scripts/symfony-it.sh            # live-Redis lane (ext-redis + redis:7)
+scripts/bridge-coverage.sh symfony      # unit coverage + floor gate (PCOV, floor 90%)
+
+scripts/laravel-test.sh          # matrix 8.2–8.4: phpunit (unit) + phpstan max
+scripts/laravel-it.sh            # live-Redis lane (ext-redis + redis:7)
+scripts/bridge-coverage.sh laravel      # unit coverage + floor gate (PCOV, floor 90%)
+```
+
+> The **Laravel bridge requires PHP 8.2 / Laravel 11+**: PHP 8.1's only Laravel line is
+> 10.x, which is EOL and blocked by composer's security advisories. The Symfony bridge and
+> core support PHP 8.1.
+
+Quality gates (CI-blocking, per bridge): **PHPUnit + PHPStan (level max) + a coverage
+floor gate**, plus a live-Redis integration job. Each bridge has its own workflow
+(`ci-symfony.yml`, `ci-laravel.yml`).
+
+### The bridge-test standard — what to test (and what NOT to)
+
+A bridge test suite proves the **wiring seam only**, in three layers:
+
+1. **Config parsing/validation** — the config tree applies defaults and rejects bad input.
+2. **Service wiring** (the bulk; **no live backend**) — the container builds a correct
+   `Freshen\Cache` from config, async listeners/handlers are registered, single-cache
+   aliases `Freshen\Cache` and multi-cache uses named binding. Assert on service
+   *definitions* / container bindings, not behaviour.
+3. **One live end-to-end smoke** (`*-it.sh`, ext-redis) — boot the real framework/container
+   against real Redis and run cold-fill → hit → async `invalidate()`, confirming the entry
+   actually drops. This is the honesty linchpin (REQUIREMENTS / FRSH-017).
+   Framework-specific async seams get their own test — e.g. Laravel's PSR-14-adapter +
+   queue routing.
+
+**Do NOT re-test cache semantics** — SWR, stampede prevention, TTL/jitter are the core
+library's job (`packages/php`). Duplicating them per bridge is a DRY violation; the bridge
+only proves its wiring hands the core the right things.
+
+### Coverage gate (REQUIREMENTS §4)
+
+Each bridge mirrors core's gate: unit line coverage **must not drop below 90%**
+(`scripts/bridge-coverage.sh`, and the CI `coverage` job). As in core — where
+`Freshen\Driver\Redis` is excluded because it is integration-tested — a bridge's
+**live-Redis wiring path is excluded from the denominator**: none for Symfony (the
+extension builds definitions, fully unit-covered), `src/FreshenManager.php` for Laravel
+(it reuses Laravel's live phpredis client). Raise the floor as coverage improves; never
+lower it to make CI pass.
+
+## Package README — badges & security block
+
+Every package README opens with the same block, directly under the H1, so package health
+and security posture are visible on GitHub **and** on the Packagist/npm page. Keep it DRY
+by copying this shape for a new package (swap the package name); **use absolute URLs** so
+the links resolve from both the monorepo and the published mirror:
+
+- **Packagist packages:** version + PHP-version + license shields, each linking to the
+  package's Packagist page, then a one-line **Security** note — Packagist advisory DB +
+  `composer audit` + private [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories)
+  reporting + a link to [SECURITY.md](SECURITY.md).
+
+  ```markdown
+  [![Packagist Version](https://img.shields.io/packagist/v/vatvit/<pkg>)](https://packagist.org/packages/vatvit/<pkg>)
+  [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/<pkg>)](https://packagist.org/packages/vatvit/<pkg>)
+  [![License](https://img.shields.io/packagist/l/vatvit/<pkg>)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+  ```
+
+- **npm package:** the `npm/v` + `npm/l` shields and an `npm audit` security note.
+
+Security policy is single-source in [SECURITY.md](SECURITY.md) (covers every package);
+the per-README note just links to it. The Packagist "Security Advisories" section each
+badge links to is populated automatically by Packagist from the advisory DB — nothing to
+maintain per release.
+
 ## Releasing
 
-See [RELEASING.md](RELEASING.md). Tags are `php-vX.Y.Z` / `ts-vX.Y.Z`.
+See [RELEASING.md](RELEASING.md). Tags are `php-vX.Y.Z` / `ts-vX.Y.Z` /
+`symfony-vX.Y.Z` / `laravel-vX.Y.Z`.
 
 ## License
 
