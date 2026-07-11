@@ -12,6 +12,7 @@ describe('ioredisAdapter', () => {
       del: (...keys) => (calls.push(['del', ...keys]), Promise.resolve(keys.length)),
       mget: (...keys) => (calls.push(['mget', ...keys]), Promise.resolve(keys.map(() => null))),
       scan: (cursor, ...args) => (calls.push(['scan', cursor, ...args]), Promise.resolve(['0', ['x']])),
+      eval: (script, numKeys, ...rest) => (calls.push(['eval', script, numKeys, ...rest]), Promise.resolve(1)),
     };
     return { client, calls, setReturn };
   }
@@ -43,6 +44,12 @@ describe('ioredisAdapter', () => {
     expect(await ioredisAdapter(client).scan('0', 'p*', 10)).toEqual({ cursor: '0', keys: ['x'] });
     expect(calls[0]).toEqual(['scan', '0', 'MATCH', 'p*', 'COUNT', 10]);
   });
+
+  it('maps eval to (script, numKeys, ...keys, ...args)', async () => {
+    const { client, calls } = fake();
+    await ioredisAdapter(client).eval('SCRIPT', ['k1'], ['a1', 'a2']);
+    expect(calls[0]).toEqual(['eval', 'SCRIPT', 1, 'k1', 'a1', 'a2']);
+  });
 });
 
 describe('nodeRedisAdapter', () => {
@@ -57,6 +64,7 @@ describe('nodeRedisAdapter', () => {
       scan: (cursor, options) => (
         calls.push(['scan', cursor, options]), Promise.resolve({ cursor: 0, keys: ['x'] })
       ),
+      eval: (script, options) => (calls.push(['eval', script, options]), Promise.resolve(1)),
     };
     return { client, calls, setReturn };
   }
@@ -81,5 +89,11 @@ describe('nodeRedisAdapter', () => {
     expect(calls).toHaveLength(0);
     await a.mget(['a', 'b']);
     expect(calls[0]).toEqual(['mGet', ['a', 'b']]);
+  });
+
+  it('maps eval to a { keys, arguments } options object', async () => {
+    const { client, calls } = fake();
+    await nodeRedisAdapter(client).eval('SCRIPT', ['k1'], ['a1']);
+    expect(calls[0]).toEqual(['eval', 'SCRIPT', { keys: ['k1'], arguments: ['a1'] }]);
   });
 });

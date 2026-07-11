@@ -71,15 +71,17 @@ export function isDriver<T>(store: Store<T>): store is Driver<T> {
 }
 
 /**
- * Single-flight leader election (PARITY §7 tier 2 / §12 req 3). `acquire` returns
- * `true` for the one caller that becomes the leader; the lock frees on `release`
- * (and self-heals via its TTL if a leader dies). The core ships an in-process
- * default; the Redis driver swaps in an atomic `SET NX` implementation (FRSH-044)
- * with no change to the read state machine.
+ * Single-flight leader election (PARITY §7 tier 2 / §12 req 3). `acquire` returns an
+ * **ownership token** for the one caller that becomes the leader, or `null` for a
+ * caller that lost. `release` takes that token and frees the lock **only if still
+ * owned** — a fenced unlock, so a leader whose lock TTL-expired (and was re-acquired
+ * by another leader) cannot delete the new owner's lock. The lock also self-heals via
+ * its TTL if a leader dies. The core ships an in-process default; the Redis driver
+ * swaps in an atomic `SET NX` implementation (FRSH-044).
  */
 export interface SingleFlight {
-  acquire(key: string, ttlSec: number): Promise<boolean>;
-  release(key: string): Promise<void>;
+  acquire(key: string, ttlSec: number): Promise<string | null>;
+  release(key: string, token: string): Promise<void>;
 }
 
 /**

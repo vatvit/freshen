@@ -73,12 +73,22 @@ describe('RedisDriver', () => {
     expect(await driver.read('product/list/a')).toBeDefined();
   });
 
-  it('acquire is an atomic NX lock; release frees it', async () => {
+  it('acquire is an atomic NX lock returning a token; fenced release frees it', async () => {
     const driver = new RedisDriver(new FakeRedis());
-    expect(await driver.acquire('k', 30)).toBe(true);
-    expect(await driver.acquire('k', 30)).toBe(false); // held
-    await driver.release('k');
-    expect(await driver.acquire('k', 30)).toBe(true); // free again
+    const token = await driver.acquire('k', 30);
+    expect(token).not.toBeNull();
+    expect(await driver.acquire('k', 30)).toBeNull(); // held
+    await driver.release('k', token as string);
+    expect(await driver.acquire('k', 30)).not.toBeNull(); // free again
+  });
+
+  it('release with a foreign token does NOT free another leader\'s lock (fenced unlock)', async () => {
+    const driver = new RedisDriver(new FakeRedis());
+    const mine = await driver.acquire('k', 30);
+    await driver.release('k', 'someone-elses-token'); // must be a no-op
+    expect(await driver.acquire('k', 30)).toBeNull(); // still held by `mine`
+    await driver.release('k', mine as string);
+    expect(await driver.acquire('k', 30)).not.toBeNull();
   });
 });
 

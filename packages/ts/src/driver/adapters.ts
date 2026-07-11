@@ -15,6 +15,7 @@ export interface IoredisLike {
   del(...keys: string[]): Promise<number>;
   mget(...keys: string[]): Promise<Array<string | null>>;
   scan(cursor: string, ...args: Array<string | number>): Promise<[string, string[]]>;
+  eval(script: string, numKeys: number, ...keysAndArgs: string[]): Promise<unknown>;
 }
 
 /** The subset of a `node-redis` v4 client Freshen uses (options-object signatures). */
@@ -28,6 +29,7 @@ export interface NodeRedisLike {
   del(keys: string | string[]): Promise<number>;
   mGet(keys: string[]): Promise<Array<string | null>>;
   scan(cursor: number, options?: { MATCH?: string; COUNT?: number }): Promise<{ cursor: number; keys: string[] }>;
+  eval(script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<unknown>;
 }
 
 /** Adapt a connected `ioredis` client to {@link RedisLike}. */
@@ -51,6 +53,7 @@ export function ioredisAdapter(client: IoredisLike): RedisLike {
       const [next, keys] = await client.scan(cursor, 'MATCH', match, 'COUNT', count);
       return { cursor: next, keys };
     },
+    eval: (script, keys, args) => client.eval(script, keys.length, ...keys, ...args),
   };
 }
 
@@ -75,5 +78,6 @@ export function nodeRedisAdapter(client: NodeRedisLike): RedisLike {
       const res = await client.scan(Number(cursor), { MATCH: match, COUNT: count });
       return { cursor: String(res.cursor), keys: res.keys };
     },
+    eval: (script, keys, args) => client.eval(script, { keys, arguments: args }),
   };
 }

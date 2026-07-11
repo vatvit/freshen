@@ -52,6 +52,20 @@ export class FakeRedis implements RedisLike {
     return Promise.resolve({ cursor: '0', keys });
   }
 
+  /**
+   * Minimal EVAL: supports the only script Freshen uses — the fenced-unlock
+   * compare-and-delete (`GET KEYS[1] == ARGV[1] ? DEL : 0`). Not a general Lua VM.
+   */
+  eval(_script: string, keys: string[], args: string[]): Promise<unknown> {
+    const key = keys[0];
+    const token = args[0];
+    if (key !== undefined && token !== undefined && this.live(key)?.value === token) {
+      this.map.delete(key);
+      return Promise.resolve(1);
+    }
+    return Promise.resolve(0);
+  }
+
   /** Test helper: how many live keys are stored. */
   size(): number {
     let n = 0;

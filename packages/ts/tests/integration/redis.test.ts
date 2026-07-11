@@ -74,12 +74,15 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
     expect(await d.read('product/detail/a')).toEqual(entry({ n: 1 }));
   });
 
-  it('SET NX gives exactly one leader', async () => {
+  it('SET NX gives exactly one leader, with a fenced (token) unlock', async () => {
     const d = driverFor();
-    expect(await d.acquire('k', 30)).toBe(true);
-    expect(await d.acquire('k', 30)).toBe(false);
-    await d.release('k');
-    expect(await d.acquire('k', 30)).toBe(true);
+    const token = await d.acquire('k', 30);
+    expect(token).not.toBeNull();
+    expect(await d.acquire('k', 30)).toBeNull();
+    await d.release('k', 'foreign-token'); // fenced: must NOT free someone else's lock
+    expect(await d.acquire('k', 30)).toBeNull();
+    await d.release('k', token as string);
+    expect(await d.acquire('k', 30)).not.toBeNull();
   });
 
   it('exact delete leaves the subtree; prefix delete drops it', async () => {

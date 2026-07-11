@@ -223,9 +223,9 @@ export class Cache<T = unknown> {
       }
 
       // Soft-expired (or past hard). Elect a single recomputer via the lock.
-      const won = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
-      if (won) {
-        return this.leaderCompute(key, now);
+      const token = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
+      if (token !== null) {
+        return this.leaderCompute(key, token);
       }
 
       // Lost the election. Serve the value we already read: FRESH while still
@@ -247,9 +247,9 @@ export class Cache<T = unknown> {
     }
 
     // Cold key: elect a recomputer.
-    const won = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
-    if (won) {
-      return this.leaderCompute(key, now);
+    const token = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
+    if (token !== null) {
+      return this.leaderCompute(key, token);
     }
 
     // Follower with no value to serve: wait a bounded time for the leader's write
@@ -384,9 +384,12 @@ export class Cache<T = unknown> {
    *  - error    → serve the retained last-good as STALE with a retry-after marker
    *               (stale-if-error); if none/disabled, propagate the error.
    */
-  private async leaderCompute(key: Key, now: number): Promise<ValueResult<T>> {
+  private async leaderCompute(key: Key, token: string): Promise<ValueResult<T>> {
     try {
       const outcome = await this.resolveLoader(key);
+      // Timestamp AFTER the (possibly slow) loader, so logical createdAt/hard-expiry
+      // reflect when the value was actually stored (PARITY §7.1; mirrors PHP).
+      const now = this.clock.now();
 
       if (outcome.kind === 'value') {
         await this.save(key, outcome.value, now);
@@ -409,7 +412,13 @@ export class Cache<T = unknown> {
       }
       throw outcome.error;
     } finally {
-      await this.singleFlight.release(key.toString());
+      // A release failure (e.g. a Redis blip) must not override the computed result;
+      // the lock self-heals via its TTL. Fire-and-forget.
+      try {
+        await this.singleFlight.release(key.toString(), token);
+      } catch {
+        // ignore — lock will expire on its own
+      }
     }
   }
 
@@ -493,8 +502,10 @@ export class Cache<T = unknown> {
       await sleep(this.followerPollMs);
       const entry = await this.store.read(keyStr);
       if (entry !== undefined && entry.negative !== true) {
-        const now = this.clock.now();
-        if (now < softExpiresAt(entry, this.precomputeSec)) {
+        // Accept any physically-usable value the leader just wrote. Gating on soft
+        // expiry would reject a fresh entry when precomputeSec ≈ hardTtlSec (soft ≈
+        // createdAt), sending every follower to fail-open — a tier-4 stampede hole.
+        if (this.clock.now() < entry.hardExpiresAt) {
           return entry;
         }
       }

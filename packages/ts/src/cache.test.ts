@@ -19,7 +19,7 @@ const noJitter: Jitter = { apply: (ttl) => ttl };
 
 /** A single-flight that always loses the election (simulates another leader). */
 const alwaysLost: SingleFlight = {
-  acquire: () => Promise.resolve(false),
+  acquire: () => Promise.resolve(null),
   release: () => Promise.resolve(),
 };
 
@@ -179,6 +179,54 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
     expect(r.isHit()).toBe(true);
     expect(r.value()).toBe('fresh');
     expect(metrics.calls).toContainEqual(['cache_hit', { state: 'fresh_after_sleep' }]);
+  });
+
+  it('tier 4 with precomputeSec == hardTtlSec: follower accepts the leader\'s write (no stampede)', async () => {
+    // Regression: gating the follower wait on soft-expiry would reject an entry whose
+    // soft ≈ createdAt (large precompute), sending every follower to fail-open.
+    const clock = fakeClock(1000);
+    const store = new MemoryStore<string>(clock);
+    const loader = vi.fn(() => 'unused');
+    const cache = new Cache<string>({
+      loader,
+      hardTtlSec: 600,
+      precomputeSec: 600, // soft == createdAt
+      store,
+      jitter: noJitter,
+      singleFlight: alwaysLost,
+      clock,
+      followerWaitMs: 500,
+      followerPollMs: 10,
+    });
+    const p = cache.get(KEY);
+    setTimeout(() => {
+      void store.write(KEY.toString(), { value: 'fresh', createdAt: 1000, hardExpiresAt: 1600 }, 600);
+    }, 30);
+    const r = await p;
+    expect(r.isHit()).toBe(true);
+    expect(r.value()).toBe('fresh');
+    expect(loader).not.toHaveBeenCalled(); // served the leader's value, did not fail-open
+  });
+
+  it('leader timestamps the entry AFTER the loader resolves (PARITY §7.1)', async () => {
+    const clock = fakeClock(1000);
+    const store = new MemoryStore<string>(clock);
+    const cache = new Cache<string>({
+      loader: () => {
+        clock.set(1005); // a "slow" loader: 5s elapse during recompute
+        return 'v';
+      },
+      hardTtlSec: 600,
+      precomputeSec: 60,
+      store,
+      jitter: noJitter,
+      clock,
+    });
+    const r = await cache.get(KEY);
+    expect(r.createdAt()).toBe(1005); // post-loader, not the pre-acquire 1000
+    const stored = await store.read(KEY.toString());
+    expect(stored?.createdAt).toBe(1005);
+    expect(stored?.hardExpiresAt).toBe(1605);
   });
 
   it('tier 5a: fail-open computes without storing when no value and wait times out', async () => {

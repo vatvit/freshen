@@ -26,6 +26,12 @@ export interface RedisLike {
 
   /** SCAN one page. Cursor is a string (`'0'` starts/ends iteration). */
   scan(cursor: string, match: string, count: number): Promise<RedisScanPage>;
+
+  /**
+   * EVAL a Lua script (used for the atomic fenced unlock — compare-and-delete of the
+   * single-flight lock so a caller only releases the lock it still owns).
+   */
+  eval(script: string, keys: string[], args: string[]): Promise<unknown>;
 }
 
 export interface RedisSetOptions {

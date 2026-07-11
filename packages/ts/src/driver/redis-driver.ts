@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import type { Entry } from '../item.js';
 import type { Driver, SingleFlight } from '../ports.js';
 import type { RedisLike } from './redis-like.js';
+
+/** Fenced unlock: delete the lock only if this caller still owns the token. */
+const RELEASE_LOCK_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 export interface RedisDriverOptions {
   /** Key namespace prefixed to every stored key. Default `'freshen'`. */
@@ -92,12 +97,18 @@ export class RedisDriver<T = unknown> implements Driver<T>, SingleFlight {
 
   // --- SingleFlight (atomic cross-process leader election) ---
 
-  acquire(key: string, ttlSec: number): Promise<boolean> {
-    return this.redis.set(this.lockKey(key), '1', { pxMs: Math.max(1, ttlSec) * 1000, nx: true });
+  async acquire(key: string, ttlSec: number): Promise<string | null> {
+    const token = randomUUID();
+    const won = await this.redis.set(this.lockKey(key), token, {
+      pxMs: Math.max(1, ttlSec) * 1000,
+      nx: true,
+    });
+    return won ? token : null;
   }
 
-  async release(key: string): Promise<void> {
-    await this.redis.del([this.lockKey(key)]);
+  /** Fenced unlock: only delete the lock if we still hold this token (Lua CAS). */
+  async release(key: string, token: string): Promise<void> {
+    await this.redis.eval(RELEASE_LOCK_LUA, [this.lockKey(key)], [token]);
   }
 
   // --- internals ---
