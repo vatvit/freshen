@@ -37,6 +37,7 @@ export type { LoaderFn } from './loader.js';
 export { CoalescingLoader, loopBatchLoader } from './batch-loader.js';
 export { DefaultJitter } from './jitter.js';
 export { MemoryStore } from './store/memory-store.js';
+export { LruStore } from './store/lru-store.js';
 export { KeyvStore } from './store/keyv-store.js';
 export type { KeyvLike } from './store/keyv-store.js';
 export { InProcessSingleFlight } from './single-flight.js';
@@ -51,6 +52,10 @@ export type { IoredisLike, NodeRedisLike } from './driver/adapters.js';
 export type { RedisLike, RedisSetOptions, RedisScanPage } from './driver/redis-like.js';
 export type { Clock } from './clock.js';
 export { systemClock } from './clock.js';
+
+// Two-level caching (L1 LRU + L2) — Approach A: stacked Cache instances
+export { TieredCache, tieredCache } from './tiered.js';
+export type { TieredCacheOptions, L1Options } from './tiered.js';
 
 // Observability — lifecycle hooks + metrics-as-subscriber
 export { HookBus, metricsSubscriber } from './hooks.js';
