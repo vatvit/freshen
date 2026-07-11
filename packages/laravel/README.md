@@ -12,6 +12,21 @@ stampede prevention. It wires the manual pool/loader/listener setup from the cor
 into a service provider + config file: `composer require`, publish the config, define one
 cache per dataset, and resolve them by name — with async invalidation already on the queue.
 
+## Features
+
+- **Drop-in Laravel bridge** — auto-discovered service provider + `Freshen` facade;
+  `composer require`, publish one config file, and go.
+- **Declarative named caches** — define one `Freshen\Cache` per dataset in
+  `config/freshen.php`, resolved by name via `Freshen::cache('top_sellers')` or the
+  injected `FreshenManager`.
+- **Queued async invalidation** — `invalidate()` / `refresh()` run on Laravel's **queue**
+  (off the request) via a PSR-14→queue adapter; a `sync` connection runs them inline.
+- **All of Freshen's core power** — stale-while-revalidate, cache-stampede prevention
+  (single-flight + jittered TTLs), structured hierarchical keys (versioning + locale),
+  flexible exact/prefix/batch invalidation, a Redis/PSR-6 backend, and built-in metrics.
+  See the [core README](https://github.com/vatvit/freshen/tree/main/packages/php).
+- **Laravel `^11 || ^12`, PHP 8.2 → 8.4** — PHPStan-max, MIT.
+
 ## Install
 
 ```bash

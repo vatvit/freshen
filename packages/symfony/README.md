@@ -13,6 +13,22 @@ README into declarative config: `composer require` + a little YAML gives you one
 per-dataset `Freshen\Cache` per data structure, injected by name, with async invalidation
 already registered.
 
+## Features
+
+- **Drop-in Symfony bundle** — `composer require` + a little YAML; the bundle wires the
+  pool, loader, and invalidation listener for you (no manual container plumbing).
+- **Declarative named caches** — define one `Freshen\Cache` per dataset in
+  `config/packages/freshen.yaml` (loader + TTLs), each **autowired by name**
+  (`Freshen\Cache $topSellersCache`).
+- **Async invalidation, pre-wired** — each cache's `Freshen\AsyncHandler` is registered on
+  Symfony's PSR-14 `event_dispatcher`, so `invalidate()` / `refresh()` dispatch and are
+  handled with no listener wiring.
+- **All of Freshen's core power** — stale-while-revalidate, cache-stampede prevention
+  (single-flight + jittered TTLs), structured hierarchical keys (versioning + locale),
+  flexible exact/prefix/batch invalidation, a Redis/PSR-6 backend, and built-in metrics.
+  See the [core README](https://github.com/vatvit/freshen/tree/main/packages/php).
+- **Symfony `^6.4 || ^7.0`, PHP 8.1 → 8.4** — PHPStan-max, MIT.
+
 ## Install
 
 ```bash
