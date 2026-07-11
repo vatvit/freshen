@@ -14,18 +14,51 @@ cache per dataset, and resolve them by name — with async invalidation already 
 
 ## Features
 
-- **Drop-in Laravel bridge** — auto-discovered service provider + `Freshen` facade;
-  `composer require`, publish one config file, and go.
+**Laravel integration**
+
+- **Drop-in bridge** — auto-discovered service provider + `Freshen` facade; `composer
+  require`, publish one config file, and go.
 - **Declarative named caches** — define one `Freshen\Cache` per dataset in
   `config/freshen.php`, resolved by name via `Freshen::cache('top_sellers')` or the
   injected `FreshenManager`.
 - **Queued async invalidation** — `invalidate()` / `refresh()` run on Laravel's **queue**
   (off the request) via a PSR-14→queue adapter; a `sync` connection runs them inline.
-- **All of Freshen's core power** — stale-while-revalidate, cache-stampede prevention
-  (single-flight + jittered TTLs), structured hierarchical keys (versioning + locale),
-  flexible exact/prefix/batch invalidation, a Redis/PSR-6 backend, and built-in metrics.
-  See the [core README](https://github.com/vatvit/freshen/tree/main/packages/php).
 - **Laravel `^11 || ^12`, PHP 8.2 → 8.4** — PHPStan-max, MIT.
+
+**Powered by Freshen core**
+
+- **Stale-while-revalidate** — serve the cached value instantly and recompute a fresh one
+  in the background; reads never block on an expired entry.
+- **Cache-stampede prevention** — single-flight leader/follower recompute plus jittered
+  TTLs: one worker rebuilds while everyone else is served the stale value (no thundering herd).
+- **Structured, hierarchical keys** — `Freshen\Key` is `domain / facet [ / schemaVersion ]
+  [ / locale ] / id`, with built-in schema **versioning** and **per-locale** variants.
+- **Flexible invalidation** — drop one exact key, a whole **prefix** (`domain/facet/*`), or
+  a **batch** of selectors in a single call.
+- **Redis-backed, PSR-6 core** — an atomic Redis driver (single-flight + exact/prefix
+  delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
+- **Built-in metrics & fail-open** — hit/miss/recompute metrics out of the box, and it
+  serves through backend hiccups instead of failing the request.
+
+Full detail in the [core README](https://github.com/vatvit/freshen/tree/main/packages/php).
+
+## At a glance
+
+`composer require`, define a cache in `config/freshen.php`, then reach it by name through
+the `Freshen` facade — reading is two lines, and you never touch the store, a stampede, or
+serialisation:
+
+```php
+use Freshen\Bridge\Laravel\Facades\Freshen;
+use Freshen\Key;
+
+$item = Freshen::cache('top_sellers')->get(new Key('product', 'top-sellers', ['category' => 456]));
+
+return $item->isMiss() ? [] : $item->value();
+```
+
+On a miss the cache calls your loader, stores the result, and returns it; later reads are
+served **stale-while-revalidate** with **stampede protection** — all automatic.
 
 ## Install
 
