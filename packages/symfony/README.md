@@ -1,17 +1,67 @@
 # Freshen — Symfony bundle
 
+> **Drop-in stale-while-revalidate caching for Symfony.** `composer require` + a little
+> YAML gives you autowired, per-dataset caches with cache-stampede prevention and async
+> invalidation — no boilerplate.
+
 [![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-symfony)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-symfony); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
+The Symfony bundle for [Freshen](https://github.com/vatvit/freshen): it turns the core
+library's manual pool/loader/listener wiring into declarative config. Declare a cache per
+dataset in YAML, inject it **by name**, and get stale-while-revalidate reads with
+cache-stampede prevention and pre-wired async invalidation out of the box.
 
-`vatvit/freshen-symfony` is the drop-in Symfony bundle for
-[Freshen](https://github.com/vatvit/freshen), the stale-while-revalidate cache with
-stampede prevention. It wires the manual pool/loader/listener setup from the core
-README into declarative config: `composer require` + a little YAML gives you one autowired,
-per-dataset `Freshen\Cache` per data structure, injected by name, with async invalidation
-already registered.
+## Features
+
+**Symfony integration**
+
+- **Drop-in bundle** — `composer require` + a little YAML; the bundle wires the pool,
+  loader, and invalidation listener for you (no manual container plumbing).
+- **Declarative named caches** — define one `Freshen\Cache` per dataset in
+  `config/packages/freshen.yaml` (loader + TTLs), each **autowired by name**
+  (`Freshen\Cache $topSellersCache`).
+- **Async invalidation, pre-wired** — each cache's `Freshen\AsyncHandler` is registered on
+  Symfony's PSR-14 `event_dispatcher`, so `invalidate()` / `refresh()` dispatch and are
+  handled with no listener wiring.
+- **Symfony `^6.4 || ^7.0`, PHP 8.1 → 8.4** — PHPStan-max, MIT.
+
+**Powered by Freshen core**
+
+- **Stale-while-revalidate** — serve the cached value instantly and recompute a fresh one
+  in the background; reads never block on an expired entry.
+- **Cache-stampede prevention** — single-flight leader/follower recompute plus jittered
+  TTLs: one worker rebuilds while everyone else is served the stale value (no thundering herd).
+- **Structured, hierarchical keys** — `Freshen\Key` is `domain / facet [ / schemaVersion ]
+  [ / locale ] / id`, with built-in schema **versioning** and **per-locale** variants.
+- **Effective delete** — genuinely evict one exact key, a whole **prefix**
+  (`domain/facet/*`), or a **batch** of selectors — atomically, in a single round-trip.
+- **Redis-backed, PSR-6 core** — an atomic Redis driver (single-flight + exact/prefix
+  delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
+- **Built-in metrics & fail-open** — hit/miss/recompute metrics out of the box, and it
+  serves through backend hiccups instead of failing the request.
+
+Full detail in the [core README](https://github.com/vatvit/freshen/tree/main/packages/php).
+
+## At a glance
+
+`composer require`, declare a cache in one YAML block, then inject it **by name** — reading
+is two lines, and you never touch the store, a stampede, or serialisation:
+
+```php
+use Freshen\Key;
+
+// in any service — the argument name selects the cache (freshen.caches.top_sellers)
+public function __construct(private \Freshen\Cache $topSellersCache) {}
+
+$item = $this->topSellersCache->get(new Key('product', 'top-sellers', ['category' => 456]));
+
+return $item->isMiss() ? [] : $item->value();
+```
+
+On a miss the cache calls your loader, stores the result, and returns it; later reads are
+served **stale-while-revalidate** with **stampede protection** — all automatic.
 
 ## Install
 
@@ -133,6 +183,13 @@ $this->topSellersCache->invalidate($key, SyncMode::SYNC);   // invalidates now, 
 > handler. Where a cache doesn't hold that key it's a harmless no-op, but caches that
 > use **colliding key namespaces** would cross-invalidate. Give each cache a distinct
 > `Key` domain/facet (they naturally differ per dataset) and this is a non-issue.
+
+## Security
+
+Tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-symfony)
+— run `composer audit` to check your install. Report vulnerabilities privately via
+[GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); the full
+policy is in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
 
 ## Versioning
 

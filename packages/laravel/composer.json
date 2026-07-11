@@ -1,6 +1,6 @@
 {
     "name": "vatvit/freshen-laravel",
-    "description": "Laravel bridge for Freshen — drop-in stale-while-revalidate cache with stampede prevention.",
+    "description": "Drop-in Laravel bridge for Freshen — stale-while-revalidate cache with cache-stampede prevention: declarative named caches via facade/manager, queued async invalidation, and a Redis/PSR-6 backend.",
     "type": "library",
     "license": "MIT",
     "keywords": ["cache", "stale-while-revalidate", "swr", "stampede", "laravel", "freshen"],
