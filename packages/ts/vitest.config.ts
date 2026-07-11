@@ -5,7 +5,8 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     coverage: {
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts'],
+      // Test doubles / helpers are exercised by tests but are not product code.
+      exclude: ['src/**/*.test.ts', 'src/testing/**'],
     },
   },
 });

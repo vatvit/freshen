@@ -24,15 +24,26 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --clean --target node16",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
+  "peerDependencies": {
+    "ioredis": "^5.0.0",
+    "redis": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ioredis": { "optional": true },
+    "redis": { "optional": true }
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^2.0.0",
     "eslint": "^9.0.0",
+    "ioredis": "^5.4.0",
+    "redis": "^4.7.0",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "typescript-eslint": "^8.0.0",

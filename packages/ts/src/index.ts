@@ -36,7 +36,16 @@ export { CallableLoader, toLoader } from './loader.js';
 export type { LoaderFn } from './loader.js';
 export { DefaultJitter } from './jitter.js';
 export { MemoryStore } from './store/memory-store.js';
+export { KeyvStore } from './store/keyv-store.js';
+export type { KeyvLike } from './store/keyv-store.js';
 export { InProcessSingleFlight } from './single-flight.js';
+
+// Redis driver (client-agnostic; inject an ioredis/node-redis adapter)
+export { RedisDriver } from './driver/redis-driver.js';
+export type { RedisDriverOptions } from './driver/redis-driver.js';
+export { ioredisAdapter, nodeRedisAdapter } from './driver/adapters.js';
+export type { IoredisLike, NodeRedisLike } from './driver/adapters.js';
+export type { RedisLike, RedisSetOptions, RedisScanPage } from './driver/redis-like.js';
 export type { Clock } from './clock.js';
 export { systemClock } from './clock.js';
 
