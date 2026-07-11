@@ -4,7 +4,7 @@ Freshen ships one package per language/framework; this policy covers all of them
 
 | Package | Ecosystem |
 |---------|-----------|
-| [`vatvit/freshen`](https://packagist.org/packages/vatvit/freshen) | Packagist (PHP core) |
+| [`vatvit/freshen-php`](https://packagist.org/packages/vatvit/freshen-php) | Packagist (PHP core) |
 | [`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony) | Packagist (Symfony bridge) |
 | [`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel) | Packagist (Laravel bridge) |
 | [`@vatvit/freshen`](https://www.npmjs.com/package/@vatvit/freshen) | npm (TS/JS) |

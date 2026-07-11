@@ -1,5 +1,5 @@
 {
-    "name": "vatvit/freshen",
+    "name": "vatvit/freshen-php",
     "description": "Stale-while-revalidate cache with stampede prevention (single-flight recompute + jittered TTLs).",
     "type": "library",
     "license": "MIT",

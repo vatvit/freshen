@@ -1,10 +1,10 @@
 # Freshen (PHP)
 
-[![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen)](https://packagist.org/packages/vatvit/freshen)
-[![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen)](https://packagist.org/packages/vatvit/freshen)
-[![License](https://img.shields.io/packagist/l/vatvit/freshen)](https://github.com/vatvit/freshen/blob/main/LICENSE)
+[![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-php)](https://packagist.org/packages/vatvit/freshen-php)
+[![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-php)](https://packagist.org/packages/vatvit/freshen-php)
+[![License](https://img.shields.io/packagist/l/vatvit/freshen-php)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
+> **Security** — tracked by the [Packagist security advisory database](https://packagist.org/packages/vatvit/freshen-php); run `composer audit` to check your install. Report privately via [GitHub Security Advisories](https://github.com/vatvit/freshen/security/advisories); policy in [SECURITY.md](https://github.com/vatvit/freshen/blob/main/SECURITY.md).
 
 PHP implementation of **Freshen** — a **stale-while-revalidate** cache with
 **cache-stampede prevention** (single-flight leader/follower recompute + jittered
@@ -44,7 +44,7 @@ for you), and `isMiss()` even tells a cached `null` apart from an absent entry.
 > a bare `require` won't resolve an RC):
 
 ```bash
-composer require vatvit/freshen:^1.0@rc      # or a pinned :1.0.0-rc.2
+composer require vatvit/freshen-php:^1.0@rc      # or a pinned :1.0.0-rc.2
 ```
 
 Requires a [PSR-6](https://www.php-fig.org/psr/psr-6/) cache pool
