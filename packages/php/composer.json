@@ -1,6 +1,6 @@
 {
     "name": "vatvit/freshen-php",
-    "description": "Stale-while-revalidate cache with stampede prevention (single-flight recompute + jittered TTLs).",
+    "description": "Stale-while-revalidate PHP cache with cache-stampede prevention — single-flight recompute, jittered TTLs, non-blocking async invalidation, structured hierarchical keys (versioning + locale), and an atomic Redis/PSR-6 backend.",
     "type": "library",
     "license": "MIT",
     "keywords": ["cache", "stale-while-revalidate", "swr", "stampede", "redis", "psr-6", "psr-16"],

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+### Changed
+- README now opens with a **Features** list (the library's stale-while-revalidate,
+  stampede-prevention, async-invalidation, structured-key, and Redis/PSR-6 highlights),
+  and the Composer/Packagist `description` is expanded to match (FRSH-035).
 
 ## [1.0.0] - 2026-07-11
 ### Added

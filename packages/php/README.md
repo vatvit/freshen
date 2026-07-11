@@ -13,6 +13,29 @@ TTLs) and **built-in metrics**.
 Runs natively on **PHP 8.1 → 8.4** (single source, no downgrade build). See
 [`COMPATIBILITY.md`](../../COMPATIBILITY.md).
 
+## Features
+
+- **Stale-while-revalidate** — serve the cached value instantly and recompute a fresh one
+  in the background; reads never block on an expired entry.
+- **Cache-stampede prevention** — single-flight leader/follower recompute plus jittered
+  TTLs: one worker rebuilds while everyone else is served the stale value (no thundering herd).
+- **Async invalidation & refresh** — `invalidate()` / `refresh()` are non-blocking by
+  default (PSR-14 events, handled off the call site); pass `SyncMode::SYNC` to run inline.
+- **Structured, hierarchical keys** — `Freshen\Key` is `domain / facet [ / schemaVersion ]
+  [ / locale ] / id`, with built-in schema **versioning** and **per-locale** variants.
+- **Flexible invalidation** — drop one exact key, a whole **prefix** (`domain/facet/*`), or
+  a **batch** of selectors in a single call/round-trip.
+- **Redis-backed, PSR-6 core** — an atomic Redis driver (single-flight + exact/prefix
+  delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
+- **Built-in metrics & fail-open** — hit/miss/recompute metrics out of the box, and it
+  serves through backend hiccups instead of failing the request.
+- **Drop-in framework bridges** — first-class Symfony
+  ([`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony)) and
+  Laravel ([`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel))
+  packages.
+- **Modern, typed PHP** — native PHP 8.1 → 8.4 (single source, no downgrade build),
+  PHPStan-max, MIT.
+
 ## At a glance
 
 Once a cache is wired (a few lines — see [Usage](#usage)), reading is two lines and
