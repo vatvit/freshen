@@ -33,3 +33,20 @@ export class AsyncDispatcherError extends Error {
     this.name = 'AsyncDispatcherError';
   }
 }
+
+/**
+ * A loader signals a **definitive not-found** (the key does not exist at the
+ * source) by throwing this (FRSH-051 negative caching). It is distinct from:
+ *  - returning a value (including `null`/`undefined`, which is a real HIT), and
+ *  - throwing any *other* error, which is a transient failure (FRSH-048
+ *    stale-if-error serves the last-good value).
+ *
+ * When `negativeTtlSec > 0`, a not-found is briefly cached so a persistently-missing
+ * key stops hammering the source; the read returns a MISS.
+ */
+export class NotFoundError extends Error {
+  constructor(message = 'Loader: key not found.') {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}

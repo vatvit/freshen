@@ -59,4 +59,9 @@ export { AsyncHandler, InProcessAsyncDispatcher } from './async-handler.js';
 export type { AsyncErrorSink } from './async-handler.js';
 
 // Errors
-export { InvalidArgumentError, MissingValueError, AsyncDispatcherError } from './errors.js';
+export {
+  InvalidArgumentError,
+  MissingValueError,
+  AsyncDispatcherError,
+  NotFoundError,
+} from './errors.js';

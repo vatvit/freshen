@@ -1,6 +1,6 @@
 import type { Clock } from './clock.js';
 import { systemClock } from './clock.js';
-import { AsyncDispatcherError, InvalidArgumentError } from './errors.js';
+import { AsyncDispatcherError, InvalidArgumentError, NotFoundError } from './errors.js';
 import { InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
 import type { HookListener } from './hooks.js';
 import { HookBus, metricsSubscriber } from './hooks.js';
@@ -66,7 +66,33 @@ export interface CacheOptions<T = unknown> {
   followerPollMs?: number;
   /** Single-flight lock TTL, seconds — self-heals a dead leader. Default 30. */
   lockTtlSec?: number;
+  /**
+   * stale-if-error (FRSH-048): when a recompute *throws* (a transient error, not a
+   * {@link NotFoundError}) and a last-known-good value is still retained, serve it as
+   * STALE instead of propagating the error. Default `true` (availability bias, like
+   * `failOpen`). Retention is the hard TTL, extended by `graceSec` past hard expiry.
+   */
+  staleIfError?: boolean;
+  /**
+   * Mini circuit-breaker (FRSH-048): after a recompute fails, do NOT re-hit the loader
+   * on every request — serve stale and retry at most once per this many seconds.
+   * Default 10.
+   */
+  staleIfErrorRetrySec?: number;
+  /**
+   * Negative caching (FRSH-051): when the loader throws {@link NotFoundError}, cache
+   * that not-found for this many seconds so a persistently-missing key stops hammering
+   * the source. `0` (default) disables it. A cached negative reads back as a MISS
+   * (distinct from a cached `null`, which is a real HIT).
+   */
+  negativeTtlSec?: number;
 }
+
+/** Internal classification of a loader call — the single "loader outcome" seam. */
+type LoaderOutcome<T> =
+  | { readonly kind: 'value'; readonly value: T }
+  | { readonly kind: 'notFound' }
+  | { readonly kind: 'error'; readonly error: unknown };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -101,6 +127,9 @@ export class Cache<T = unknown> {
   private readonly followerWaitMs: number;
   private readonly followerPollMs: number;
   private readonly lockTtlSec: number;
+  private readonly staleIfError: boolean;
+  private readonly staleIfErrorRetrySec: number;
+  private readonly negativeTtlSec: number;
 
   constructor(options: CacheOptions<T>) {
     const {
@@ -119,6 +148,9 @@ export class Cache<T = unknown> {
       followerWaitMs = 900,
       followerPollMs = 50,
       lockTtlSec = 30,
+      staleIfError = true,
+      staleIfErrorRetrySec = 10,
+      negativeTtlSec = 0,
     } = options;
 
     if (!Number.isInteger(hardTtlSec) || hardTtlSec < 1) {
@@ -151,6 +183,16 @@ export class Cache<T = unknown> {
     this.followerWaitMs = followerWaitMs;
     this.followerPollMs = followerPollMs;
     this.lockTtlSec = lockTtlSec;
+
+    if (!Number.isInteger(staleIfErrorRetrySec) || staleIfErrorRetrySec < 0) {
+      throw new InvalidArgumentError('staleIfErrorRetrySec must be an integer >= 0');
+    }
+    if (!Number.isInteger(negativeTtlSec) || negativeTtlSec < 0) {
+      throw new InvalidArgumentError('negativeTtlSec must be an integer >= 0');
+    }
+    this.staleIfError = staleIfError;
+    this.staleIfErrorRetrySec = staleIfErrorRetrySec;
+    this.negativeTtlSec = negativeTtlSec;
   }
 
   /**
@@ -172,6 +214,14 @@ export class Cache<T = unknown> {
         return ValueResult.hit(entry.value, entry.createdAt, soft);
       }
 
+      // stale-if-error circuit-breaker (FRSH-048): a prior recompute failed and set a
+      // retry-after marker. Until then, serve the last-good value as stale WITHOUT
+      // re-hitting the loader — one leader retries only at/after nextRetryAt.
+      if (entry.nextRetryAt !== undefined && now < entry.nextRetryAt) {
+        this.hooks.emit({ type: 'get', key, outcome: 'stale_on_error' });
+        return ValueResult.stale(entry.value, entry.createdAt, soft);
+      }
+
       // Soft-expired (or past hard). Elect a single recomputer via the lock.
       const won = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
       if (won) {
@@ -189,7 +239,14 @@ export class Cache<T = unknown> {
       return ValueResult.stale(entry.value, entry.createdAt, soft);
     }
 
-    // Cold key (or a negative entry): elect a recomputer.
+    // A retained negative entry (FRSH-051): short-circuit to a MISS without hitting
+    // the loader — the cached "not found" suppresses hammering within its window.
+    if (entry !== undefined && entry.negative === true) {
+      this.hooks.emit({ type: 'get', key, outcome: 'negative' });
+      return ValueResult.miss<T>();
+    }
+
+    // Cold key: elect a recomputer.
     const won = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
     if (won) {
       return this.leaderCompute(key, now);
@@ -281,16 +338,99 @@ export class Cache<T = unknown> {
 
   // --- internals ---
 
-  /** Leader path: recompute, store, and return a fresh hit (PARITY §7 tier 2 / §7.1). */
+  /**
+   * Leader path (PARITY §7 tier 2 / §7.1) routed through the single loader-outcome
+   * seam shared by fail-open, negative caching (FRSH-051) and stale-if-error
+   * (FRSH-048):
+   *  - value    → store it, return a fresh HIT (`cache_fill`).
+   *  - notFound → negative-cache it (if enabled), return a MISS (`cache_miss{negative}`).
+   *  - error    → serve the retained last-good as STALE with a retry-after marker
+   *               (stale-if-error); if none/disabled, propagate the error.
+   */
   private async leaderCompute(key: Key, now: number): Promise<ValueResult<T>> {
     try {
-      const value = await this.loader.resolve(key);
-      await this.save(key, value, now);
-      this.hooks.emit({ type: 'get', key, outcome: 'fill' });
-      return ValueResult.hit(value, now, this.postWriteSoft(now));
+      const outcome = await this.resolveLoader(key);
+
+      if (outcome.kind === 'value') {
+        await this.save(key, outcome.value, now);
+        this.hooks.emit({ type: 'get', key, outcome: 'fill' });
+        return ValueResult.hit(outcome.value, now, this.postWriteSoft(now));
+      }
+
+      if (outcome.kind === 'notFound') {
+        await this.recordNotFound(key, now);
+        this.hooks.emit({ type: 'get', key, outcome: 'negative' });
+        return ValueResult.miss<T>();
+      }
+
+      // Transient error.
+      this.hooks.emit({ type: 'loaderError', key, error: outcome.error });
+      const stale = await this.serveStaleOnError(key, now);
+      if (stale !== undefined) {
+        this.hooks.emit({ type: 'get', key, outcome: 'stale_on_error' });
+        return stale;
+      }
+      throw outcome.error;
     } finally {
       await this.singleFlight.release(key.toString());
     }
+  }
+
+  /** Call the loader once and classify the outcome (the shared decision point). */
+  private async resolveLoader(key: Key): Promise<LoaderOutcome<T>> {
+    try {
+      const value = await this.loader.resolve(key);
+      return { kind: 'value', value };
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        return { kind: 'notFound' };
+      }
+      return { kind: 'error', error };
+    }
+  }
+
+  /**
+   * stale-if-error: if a last-known-good value is still retained within the grace
+   * window, mark it with a retry-after (circuit breaker) and return it as STALE.
+   * Returns `undefined` when disabled or nothing is retained.
+   */
+  private async serveStaleOnError(key: Key, now: number): Promise<ValueResult<T> | undefined> {
+    if (!this.staleIfError) {
+      return undefined;
+    }
+    const last = await this.store.read(key.toString());
+    if (last === undefined || last.negative === true) {
+      return undefined;
+    }
+    const graceEnd = last.hardExpiresAt + this.graceSec;
+    if (now >= graceEnd) {
+      return undefined; // grace window elapsed — stop serving stale
+    }
+    // Persist the retry-after so followers serve stale without re-hitting the loader.
+    const nextRetryAt = Math.min(now + this.staleIfErrorRetrySec, graceEnd);
+    const remaining = graceEnd - now;
+    await this.store.write(key.toString(), { ...last, nextRetryAt }, remaining);
+    return ValueResult.stale(last.value, last.createdAt, softExpiresAt(last, this.precomputeSec));
+  }
+
+  /**
+   * Record a definitive not-found (FRSH-051). With negative caching on, store a
+   * short-lived negative entry (overwriting any stale positive — the item is gone at
+   * source). With it off, remove any stale positive so we don't keep serving a value
+   * the source says no longer exists.
+   */
+  private async recordNotFound(key: Key, now: number): Promise<void> {
+    if (this.negativeTtlSec <= 0) {
+      await this.store.deleteExact(key.toString());
+      return;
+    }
+    const entry: Entry<T> = {
+      value: undefined as unknown as T,
+      createdAt: now,
+      hardExpiresAt: now + this.negativeTtlSec,
+      negative: true,
+    };
+    await this.store.write(key.toString(), entry, this.negativeTtlSec);
   }
 
   /** Persist a value under a jittered hard TTL (+ grace retention) (PARITY §9). */
@@ -325,13 +465,24 @@ export class Cache<T = unknown> {
     return undefined;
   }
 
-  /** Last resort (PARITY §7 tier 5): compute-without-store (fail-open) or miss. */
+  /**
+   * Last resort (PARITY §7 tier 5): compute-without-store (fail-open) or miss. The
+   * leader (not this racing follower) owns storing/negative-caching, so tier 5a only
+   * computes a value to return; a not-found becomes a MISS and a transient error
+   * propagates.
+   */
   private async failOpenOrMiss(key: Key): Promise<ValueResult<T>> {
     if (this.failOpen) {
-      const value = await this.loader.resolve(key);
-      const now = this.clock.now();
-      this.hooks.emit({ type: 'get', key, outcome: 'fail_open' });
-      return ValueResult.hit(value, now, this.postWriteSoft(now));
+      const outcome = await this.resolveLoader(key);
+      if (outcome.kind === 'value') {
+        const now = this.clock.now();
+        this.hooks.emit({ type: 'get', key, outcome: 'fail_open' });
+        return ValueResult.hit(outcome.value, now, this.postWriteSoft(now));
+      }
+      if (outcome.kind === 'error') {
+        throw outcome.error;
+      }
+      // not found
     }
     this.hooks.emit({ type: 'get', key, outcome: 'miss' });
     return ValueResult.miss<T>();
