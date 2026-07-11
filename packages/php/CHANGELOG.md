@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-07-11
 ### Added
 - README now opens with Packagist version/PHP/license badges and a **Security** note
   (Packagist advisory DB + `composer audit` + private GitHub Security Advisories
