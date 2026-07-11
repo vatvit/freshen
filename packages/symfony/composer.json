@@ -1,6 +1,6 @@
 {
     "name": "vatvit/freshen-symfony",
-    "description": "Symfony bundle for Freshen — drop-in stale-while-revalidate cache with stampede prevention.",
+    "description": "Drop-in Symfony bundle for Freshen — stale-while-revalidate cache with cache-stampede prevention: declarative named caches, autowired by name, async invalidation pre-wired, and a Redis/PSR-6 backend.",
     "type": "symfony-bundle",
     "license": "MIT",
     "keywords": ["cache", "stale-while-revalidate", "swr", "stampede", "symfony", "bundle", "freshen"],

@@ -19,4 +19,4 @@ Releases are tagged `symfony-vX.Y.Z` in the monorepo.
 - Async invalidation wired out of the box: each cache's `Freshen\AsyncHandler` is
   registered on Symfony's PSR-14 `event_dispatcher` for the three event classes.
 - Live-Redis integration lane (`scripts/symfony-it.sh`) and CI (`ci-symfony.yml`).
-- Requires `vatvit/freshen` `^1.0@rc`; Symfony `^6.4 || ^7.0`; PHP `>= 8.1`.
+- Requires `vatvit/freshen-php` `^1.0`; Symfony `^6.4 || ^7.0`; PHP `>= 8.1`.

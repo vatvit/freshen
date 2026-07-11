@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `php-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+### Changed
+- README first screen reworked to lead with the value proposition — a tagline + benefit
+  hook + a **Features** list (stale-while-revalidate, stampede prevention, async
+  invalidation, structured keys, Redis/PSR-6, metrics/fail-open) — and the
+  Composer/Packagist `description` is expanded to match (FRSH-035). The Security note moved
+  from the top into a dedicated `## Security` section.
+
+### Fixed
+- Install section no longer shows the stale **pre-1.0 / release-candidate** notice or the
+  `:^1.0@rc` requirement; `composer require vatvit/freshen-php` now resolves stable 1.0.0
+  (FRSH-035).
 
 ## [1.0.0] - 2026-07-11
 ### Added
