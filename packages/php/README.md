@@ -9,8 +9,9 @@
 Freshen brings together the caching pieces you normally wire up by hand: **single-flight**
 recompute so exactly one worker rebuilds a hot key while everyone else is served the last
 good value (**no cache-stampede**); **preemptive refresh** that recomputes an entry *before*
-it goes stale, on TTLs and jitter you control; **structured keys** with exact-or-prefix
-invalidation; and **built-in metrics** on every hit, miss, and rebuild. Wrap any expensive
+it goes stale, on TTLs and jitter you control; **structured keys** and **effective delete**
+— genuinely evict one exact key or a whole prefix, atomically and in one round-trip; and
+**built-in metrics** on every hit, miss, and rebuild. Wrap any expensive
 read — a database query, an API call, a rendered fragment — and every cache-related decision
 is explicit and yours. Runs natively on **PHP 8.1 → 8.4**
 ([`COMPATIBILITY.md`](../../COMPATIBILITY.md)).
@@ -25,8 +26,9 @@ is explicit and yours. Runs natively on **PHP 8.1 → 8.4**
   default (PSR-14 events, handled off the call site); pass `SyncMode::SYNC` to run inline.
 - **Structured, hierarchical keys** — `Freshen\Key` is `domain / facet [ / schemaVersion ]
   [ / locale ] / id`, with built-in schema **versioning** and **per-locale** variants.
-- **Flexible invalidation** — drop one exact key, a whole **prefix** (`domain/facet/*`), or
-  a **batch** of selectors in a single call/round-trip.
+- **Effective delete** — genuinely evict one exact key, a whole **prefix**
+  (`domain/facet/*`), or a **batch** of selectors — atomically, in a single round-trip (a
+  real delete, not just a TTL bump).
 - **Redis-backed, PSR-6 core** — an atomic Redis driver (single-flight + exact/prefix
   delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
 - **Built-in metrics & fail-open** — hit/miss/recompute metrics out of the box, and it

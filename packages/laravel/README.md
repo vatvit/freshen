@@ -34,8 +34,8 @@ reads with cache-stampede prevention and queued async invalidation out of the bo
   TTLs: one worker rebuilds while everyone else is served the stale value (no thundering herd).
 - **Structured, hierarchical keys** — `Freshen\Key` is `domain / facet [ / schemaVersion ]
   [ / locale ] / id`, with built-in schema **versioning** and **per-locale** variants.
-- **Flexible invalidation** — drop one exact key, a whole **prefix** (`domain/facet/*`), or
-  a **batch** of selectors in a single call.
+- **Effective delete** — genuinely evict one exact key, a whole **prefix**
+  (`domain/facet/*`), or a **batch** of selectors — atomically, in a single round-trip.
 - **Redis-backed, PSR-6 core** — an atomic Redis driver (single-flight + exact/prefix
   delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
 - **Built-in metrics & fail-open** — hit/miss/recompute metrics out of the box, and it
