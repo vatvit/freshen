@@ -95,6 +95,39 @@ The bundle registers each cache's `Freshen\AsyncHandler` on Symfony's PSR-14
 default) dispatch `Freshen\{Invalidate,InvalidateExact,Refresh}Event` and are handled
 without you wiring listeners.
 
+Call it wherever your data changes — e.g. an application service — and the bundle's
+registered handler does the rest:
+
+```php
+use Freshen\Key;
+
+// An app service that mutates a product — drop its cached view when it does.
+final class ProductUpdater
+{
+    public function __construct(private \Freshen\Cache $topSellersCache) {}
+
+    public function update(Product $product): void
+    {
+        // ... persist the change ...
+
+        $key = new Key('product', 'detail', $product->getId());
+        $this->topSellersCache->invalidate($key);   // async → dispatches InvalidateEvent, handled by the bundle
+        // $this->topSellersCache->refresh($key);     // async → recompute + store
+    }
+}
+```
+
+Symfony's `event_dispatcher` is **synchronous**, so the handler runs within the same
+request: the async default *decouples* invalidation from the call site, it does not by
+itself move the work off-process (unlike the Laravel bridge's queue). To skip the event
+and invalidate inline, pass `SyncMode::SYNC`:
+
+```php
+use Freshen\SyncMode;
+
+$this->topSellersCache->invalidate($key, SyncMode::SYNC);   // invalidates now, no event dispatched
+```
+
 > **Caveat — shared dispatcher fan-out.** These events carry a **key only, not a cache
 > id**, so an async `invalidate($key)` is delivered to *every* configured cache's
 > handler. Where a cache doesn't hold that key it's a harmless no-op, but caches that
@@ -104,8 +137,8 @@ without you wiring listeners.
 ## Versioning
 
 Independent SemVer, released as `symfony-vX.Y.Z`. Depends on `vatvit/freshen-php` via
-`^1.0@rc` (→ `^1.0` once core is stable). A core patch/minor needs no bridge release; a
-core major does. See the monorepo `RELEASING.md`.
+`^1.0`. A core patch/minor needs no bridge release; a core major does. See the monorepo
+`RELEASING.md`.
 
 ## Links
 
