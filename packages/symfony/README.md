@@ -103,7 +103,7 @@ without you wiring listeners.
 
 ## Versioning
 
-Independent SemVer, released as `symfony-vX.Y.Z`. Depends on `vatvit/freshen` via
+Independent SemVer, released as `symfony-vX.Y.Z`. Depends on `vatvit/freshen-php` via
 `^1.0@rc` (→ `^1.0` once core is stable). A core patch/minor needs no bridge release; a
 core major does. See the monorepo `RELEASING.md`.
 

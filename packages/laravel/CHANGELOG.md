@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `laravel-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-07-11
 ### Added
 - Initial Laravel bridge (`Freshen\Bridge\Laravel\FreshenServiceProvider`, auto-discovered):
   declarative **named-cache** config (`config/freshen.php`) building one `Freshen\Cache`
