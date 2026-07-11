@@ -8,10 +8,15 @@
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-symfony)](https://packagist.org/packages/vatvit/freshen-symfony)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-symfony)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-The Symfony bundle for [Freshen](https://github.com/vatvit/freshen): it turns the core
-library's manual pool/loader/listener wiring into declarative config. Declare a cache per
-dataset in YAML, inject it **by name**, and get stale-while-revalidate reads with
-cache-stampede prevention and pre-wired async invalidation out of the box.
+The Symfony bundle for [Freshen](https://github.com/vatvit/freshen) brings the caching
+pieces you normally wire up by hand into declarative config: **single-flight** recompute so
+exactly one worker rebuilds a hot key while everyone else is served the last good value
+(**no cache-stampede**); **preemptive refresh** that recomputes an entry *before* it goes
+stale, on TTLs and jitter you control; **structured keys** and **effective delete** —
+genuinely evict one exact key or a whole prefix, atomically and in one round-trip; and
+**built-in metrics** on every hit, miss, and rebuild. Declare a cache per dataset in YAML,
+inject it **by name**, and every cache-related decision is explicit and yours — no container
+plumbing.
 
 ## Features
 
