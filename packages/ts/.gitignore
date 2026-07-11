@@ -2,3 +2,6 @@
 /dist/
 /coverage/
 *.tsbuildinfo
+
+# overnight autonomous-build scratch log (not shipped)
+/BUILD-QUESTIONS.md

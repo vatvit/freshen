@@ -7,7 +7,9 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     rules: {
-      '@typescript-eslint/explicit-function-return-type': 'warn',
+      // Require explicit return types on named/exported functions, but allow inline
+      // callbacks & function expressions (loaders, stubs, test callbacks) to infer.
+      '@typescript-eslint/explicit-function-return-type': ['warn', { allowExpressions: true }],
     },
   },
 );

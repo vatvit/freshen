@@ -1,0 +1,329 @@
+import type { Clock } from './clock.js';
+import { systemClock } from './clock.js';
+import { AsyncDispatcherError, InvalidArgumentError } from './errors.js';
+import { InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
+import type { Entry } from './item.js';
+import { softExpiresAt } from './item.js';
+import type { Key } from './key.js';
+import { DefaultJitter } from './jitter.js';
+import type { LoaderFn } from './loader.js';
+import { toLoader } from './loader.js';
+import type {
+  EventDispatcher,
+  Jitter,
+  Loader,
+  Metrics,
+  Selector,
+  SingleFlight,
+  Store,
+} from './ports.js';
+import { isDriver } from './ports.js';
+import { MemoryStore } from './store/memory-store.js';
+import { InProcessSingleFlight } from './single-flight.js';
+import { SyncMode } from './sync-mode.js';
+import { ValueResult } from './value-result.js';
+
+/**
+ * Construction options for {@link Cache}. Only `loader` + `hardTtlSec` are required;
+ * everything else has a bundled default so the common case is a two-line path
+ * (PARITY §3.1 / §4; the "simple by default, customizable in every axis" principle).
+ */
+export interface CacheOptions<T = unknown> {
+  /** Recomputes a value for a key. A bare function is wrapped as a `CallableLoader`. */
+  loader: Loader<T> | LoaderFn<T>;
+  /** Absolute lifetime of a cached entry, seconds. MUST be ≥ 1. */
+  hardTtlSec: number;
+  /** Seconds before hard expiry the precompute window opens. MUST be in `[0, hardTtlSec]`. Default 0. */
+  precomputeSec?: number;
+  /** Backend store. Default: a process-local {@link MemoryStore}. */
+  store?: Store<T>;
+  /** TTL jitter. Default: {@link DefaultJitter} at 15%. */
+  jitter?: Jitter;
+  /** Single-flight lock. Default: {@link InProcessSingleFlight}. */
+  singleFlight?: SingleFlight;
+  /** Event dispatcher for ASYNC ops (required only for async). */
+  dispatcher?: EventDispatcher;
+  /** Observability sink. */
+  metrics?: Metrics;
+  /** Last-resort behaviour under contention. Default `true`. */
+  failOpen?: boolean;
+  /** Time source (unix seconds). Default: system clock. */
+  clock?: Clock;
+  /**
+   * Extra physical retention past hard expiry, seconds (default 0). The stored
+   * value outlives its logical hard TTL by this much so a follower can be served it
+   * as STALE while a leader recomputes (and, later, stale-if-error). Physical store
+   * TTL = jittered hard TTL + `graceSec`.
+   */
+  graceSec?: number;
+  /** Bounded wait for a leader's fresh value on a cold miss, ms (PARITY §7 tier 4). Default 900. */
+  followerWaitMs?: number;
+  /** Poll interval within the follower wait, ms. Default 50. */
+  followerPollMs?: number;
+  /** Single-flight lock TTL, seconds — self-heals a dead leader. Default 30. */
+  lockTtlSec?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    if (typeof t === 'object' && typeof t.unref === 'function') {
+      t.unref();
+    }
+  });
+}
+
+/**
+ * The Freshen cache: a stale-while-revalidate read with stampede prevention
+ * (PARITY §1). The read state machine (`get`) and the mutating ops
+ * (`put`/`invalidate`/`invalidateExact`/`refresh`) mirror the PHP reference.
+ *
+ * Behaviour is backend-agnostic: the same state machine runs over the default
+ * in-memory store or a Redis driver — only the single-flight lock and the batch/
+ * atomic-delete primitives differ, and those are feature-detected.
+ */
+export class Cache<T = unknown> {
+  private readonly loader: Loader<T>;
+  private readonly hardTtlSec: number;
+  private readonly precomputeSec: number;
+  private readonly store: Store<T>;
+  private readonly jitter: Jitter;
+  private readonly singleFlight: SingleFlight;
+  private readonly dispatcher?: EventDispatcher;
+  private readonly metrics?: Metrics;
+  private readonly failOpen: boolean;
+  private readonly clock: Clock;
+  private readonly graceSec: number;
+  private readonly followerWaitMs: number;
+  private readonly followerPollMs: number;
+  private readonly lockTtlSec: number;
+
+  constructor(options: CacheOptions<T>) {
+    const {
+      loader,
+      hardTtlSec,
+      precomputeSec = 0,
+      store,
+      jitter,
+      singleFlight,
+      dispatcher,
+      metrics,
+      failOpen = true,
+      clock = systemClock,
+      graceSec = 0,
+      followerWaitMs = 900,
+      followerPollMs = 50,
+      lockTtlSec = 30,
+    } = options;
+
+    if (!Number.isInteger(hardTtlSec) || hardTtlSec < 1) {
+      throw new InvalidArgumentError('hardTtlSec must be an integer >= 1');
+    }
+    if (!Number.isInteger(precomputeSec) || precomputeSec < 0 || precomputeSec > hardTtlSec) {
+      throw new InvalidArgumentError('precomputeSec must be an integer in [0, hardTtlSec]');
+    }
+    if (!Number.isInteger(graceSec) || graceSec < 0) {
+      throw new InvalidArgumentError('graceSec must be an integer >= 0');
+    }
+
+    this.loader = toLoader(loader);
+    this.hardTtlSec = hardTtlSec;
+    this.precomputeSec = precomputeSec;
+    this.store = store ?? new MemoryStore<T>(clock);
+    this.jitter = jitter ?? new DefaultJitter();
+    this.singleFlight = singleFlight ?? new InProcessSingleFlight();
+    this.dispatcher = dispatcher;
+    this.metrics = metrics;
+    this.failOpen = failOpen;
+    this.clock = clock;
+    this.graceSec = graceSec;
+    this.followerWaitMs = followerWaitMs;
+    this.followerPollMs = followerPollMs;
+    this.lockTtlSec = lockTtlSec;
+  }
+
+  /**
+   * SWR read (PARITY §7). Evaluates the tiers in order and returns from the first
+   * that produces a result: fresh hit → leader recompute → follower serve-stale →
+   * follower bounded-wait → fail-open / fail-closed.
+   */
+  async get(key: Key): Promise<ValueResult<T>> {
+    const keyStr = key.toString();
+    const entry = await this.store.read(keyStr);
+    const now = this.clock.now();
+
+    if (entry !== undefined && entry.negative !== true) {
+      const soft = softExpiresAt(entry, this.precomputeSec);
+      // Tier 1 (pure fresh): before the soft boundary, everyone is served fresh
+      // with no contention and no recompute.
+      if (now < soft) {
+        this.metrics?.inc('cache_hit', { state: 'fresh' });
+        return ValueResult.hit(entry.value, entry.createdAt, soft);
+      }
+
+      // Soft-expired (or past hard). Elect a single recomputer via the lock.
+      const won = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
+      if (won) {
+        return this.leaderCompute(key, now);
+      }
+
+      // Lost the election. Serve the value we already read: FRESH while still
+      // within the precompute window (tier 1, non-elected), STALE once past hard
+      // expiry (tier 3) — no blocking either way.
+      if (now < entry.hardExpiresAt) {
+        this.metrics?.inc('cache_hit', { state: 'fresh' });
+        return ValueResult.hit(entry.value, entry.createdAt, soft);
+      }
+      this.metrics?.inc('cache_hit', { state: 'stale' });
+      return ValueResult.stale(entry.value, entry.createdAt, soft);
+    }
+
+    // Cold key (or a negative entry): elect a recomputer.
+    const won = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
+    if (won) {
+      return this.leaderCompute(key, now);
+    }
+
+    // Follower with no value to serve: wait a bounded time for the leader's write
+    // (tier 4), else fail open/closed (tier 5).
+    const fresh = await this.waitForFresh(keyStr);
+    if (fresh !== undefined) {
+      this.metrics?.inc('cache_hit', { state: 'fresh_after_sleep' });
+      return ValueResult.hit(fresh.value, fresh.createdAt, softExpiresAt(fresh, this.precomputeSec));
+    }
+    return this.failOpenOrMiss(key);
+  }
+
+  /** Write/overwrite a value with a fresh (jittered) hard TTL (PARITY §3.1). */
+  async put(key: Key, value: T): Promise<void> {
+    await this.save(key, value, this.clock.now());
+    this.metrics?.inc('cache_put');
+  }
+
+  /** Hierarchical delete by prefix/key subtree (PARITY §8). Defaults to ASYNC. */
+  async invalidate(
+    selectors: Selector | Selector[],
+    mode: SyncMode = SyncMode.ASYNC,
+  ): Promise<void> {
+    for (const selector of Array.isArray(selectors) ? selectors : [selectors]) {
+      if (mode === SyncMode.ASYNC) {
+        this.dispatch(new InvalidateEvent(selector));
+        continue;
+      }
+      await this.store.deletePrefix(selector.toString());
+      this.metrics?.inc('cache_invalidate_hierarchical');
+    }
+  }
+
+  /** Exact-key delete (PARITY §8). Defaults to ASYNC. Batches on a Redis driver. */
+  async invalidateExact(keys: Key | Key[], mode: SyncMode = SyncMode.ASYNC): Promise<void> {
+    const list = Array.isArray(keys) ? keys : [keys];
+
+    if (mode === SyncMode.ASYNC) {
+      for (const key of list) {
+        this.dispatch(new InvalidateExactEvent(key));
+      }
+      return;
+    }
+
+    if (list.length === 0) {
+      return;
+    }
+
+    if (isDriver(this.store)) {
+      // Collapse the whole set into one atomic round-trip (Redis DEL k1 k2 …).
+      await this.store.deleteExactMany(list.map((key) => key.toString()));
+    } else {
+      for (const key of list) {
+        await this.store.deleteExact(key.toString());
+      }
+    }
+    for (let i = 0; i < list.length; i++) {
+      this.metrics?.inc('cache_invalidate');
+    }
+  }
+
+  /** Recompute via the loader and store now (PARITY §8). Defaults to ASYNC. */
+  async refresh(keys: Key | Key[], mode: SyncMode = SyncMode.ASYNC): Promise<void> {
+    for (const key of Array.isArray(keys) ? keys : [keys]) {
+      if (mode === SyncMode.ASYNC) {
+        this.dispatch(new RefreshEvent(key));
+        continue;
+      }
+      await this.put(key, await this.loader.resolve(key));
+    }
+  }
+
+  /**
+   * Escape hatch: the underlying store (PARITY §12; not a parity requirement). Lets
+   * a host reach the raw backend. Whole-store flush is intentionally not offered.
+   */
+  asStore(): Store<T> {
+    return this.store;
+  }
+
+  // --- internals ---
+
+  /** Leader path: recompute, store, and return a fresh hit (PARITY §7 tier 2 / §7.1). */
+  private async leaderCompute(key: Key, now: number): Promise<ValueResult<T>> {
+    try {
+      const value = await this.loader.resolve(key);
+      await this.save(key, value, now);
+      this.metrics?.inc('cache_fill');
+      return ValueResult.hit(value, now, this.postWriteSoft(now));
+    } finally {
+      await this.singleFlight.release(key.toString());
+    }
+  }
+
+  /** Persist a value under a jittered hard TTL (+ grace retention) (PARITY §9). */
+  private async save(key: Key, value: T, now: number): Promise<void> {
+    const jittered = this.jitter.apply(this.hardTtlSec, key);
+    const entry: Entry<T> = {
+      value,
+      createdAt: now,
+      hardExpiresAt: now + jittered,
+    };
+    await this.store.write(key.toString(), entry, jittered + this.graceSec);
+  }
+
+  /** Post-write soft boundary from the *nominal* hard TTL (PARITY §7.1). */
+  private postWriteSoft(now: number): number {
+    return Math.max(now, now + this.hardTtlSec - this.precomputeSec);
+  }
+
+  /** Bounded poll for a leader's fresh write (PARITY §7 tier 4). */
+  private async waitForFresh(keyStr: string): Promise<Entry<T> | undefined> {
+    const deadline = Date.now() + this.followerWaitMs;
+    while (Date.now() < deadline) {
+      await sleep(this.followerPollMs);
+      const entry = await this.store.read(keyStr);
+      if (entry !== undefined && entry.negative !== true) {
+        const now = this.clock.now();
+        if (now < softExpiresAt(entry, this.precomputeSec)) {
+          return entry;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** Last resort (PARITY §7 tier 5): compute-without-store (fail-open) or miss. */
+  private async failOpenOrMiss(key: Key): Promise<ValueResult<T>> {
+    if (this.failOpen) {
+      const value = await this.loader.resolve(key);
+      const now = this.clock.now();
+      this.metrics?.inc('cache_miss', { cause: 'precompute_race' });
+      return ValueResult.hit(value, now, this.postWriteSoft(now));
+    }
+    this.metrics?.inc('cache_miss', { cause: 'precompute_race_fail_closed' });
+    return ValueResult.miss<T>();
+  }
+
+  private dispatch(event: object): void {
+    if (this.dispatcher === undefined) {
+      throw new AsyncDispatcherError();
+    }
+    this.dispatcher.dispatch(event);
+  }
+}

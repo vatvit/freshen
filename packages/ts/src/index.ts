@@ -1,8 +1,47 @@
 /**
  * freshen — stale-while-revalidate cache with stampede prevention.
  *
- * Placeholder entry point. The public API is intentionally not implemented yet;
- * this scaffold only establishes the build, types, and test harness. See the
- * project requirements before adding real behavior.
+ * TS/JS port of the PHP reference (`packages/php`), built to satisfy the
+ * language-neutral parity contract in `docs/PARITY.md`.
  */
-export const VERSION = '0.0.0';
+
+export const VERSION = '1.0.0-rc.1';
+
+// Core value types
+export { Key, KeyPrefix, rawurlencode } from './key.js';
+export type { KeyId, IdScalar, IdComposite, KeyPrefixLike } from './key.js';
+export { ValueResult, CacheReadState } from './value-result.js';
+export { SyncMode } from './sync-mode.js';
+export type { Entry } from './item.js';
+export { softExpiresAt } from './item.js';
+
+// Cache entry point
+export { Cache } from './cache.js';
+export type { CacheOptions } from './cache.js';
+
+// Collaborators (interfaces + bundled defaults)
+export type {
+  Loader,
+  BatchLoader,
+  Jitter,
+  Metrics,
+  Store,
+  Driver,
+  SingleFlight,
+  EventDispatcher,
+  Selector,
+} from './ports.js';
+export { isDriver } from './ports.js';
+export { CallableLoader, toLoader } from './loader.js';
+export type { LoaderFn } from './loader.js';
+export { DefaultJitter } from './jitter.js';
+export { MemoryStore } from './store/memory-store.js';
+export { InProcessSingleFlight } from './single-flight.js';
+export type { Clock } from './clock.js';
+export { systemClock } from './clock.js';
+
+// Async model (events; handler + bindings arrive with FRSH-045)
+export { AsyncEvent, InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
+
+// Errors
+export { InvalidArgumentError, MissingValueError, AsyncDispatcherError } from './errors.js';
