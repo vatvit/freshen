@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases are tagged `symfony-vX.Y.Z` in the monorepo.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-07-11
 ### Added
 - Initial Symfony bundle (`Freshen\Bridge\Symfony\FreshenBundle`): declarative
   **named-cache** config (`freshen.caches.<name>`) building one `Freshen\Cache` service
