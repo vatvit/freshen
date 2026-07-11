@@ -1,12 +1,37 @@
 {
   "name": "@vatvit/freshen",
-  "version": "0.0.0",
-  "description": "Stale-while-revalidate cache with stampede prevention (single-flight recompute + jittered TTLs).",
+  "version": "1.0.0-rc.1",
+  "description": "Stale-while-revalidate cache with stampede prevention: deterministic precompute window, cluster-wide single-flight (Redis SET NX), structured hierarchical keys with atomic prefix delete, two-level (LRU + Redis) caching, stale-if-error, negative caching, batch read + coalescing loader, and hooks-native metrics.",
   "license": "MIT",
+  "author": "vatvit",
   "type": "module",
-  "keywords": ["cache", "stale-while-revalidate", "swr", "stampede", "redis"],
+  "keywords": [
+    "cache",
+    "caching",
+    "stale-while-revalidate",
+    "swr",
+    "stampede",
+    "single-flight",
+    "redis",
+    "ioredis",
+    "keyv",
+    "lru",
+    "two-level-cache",
+    "stale-if-error",
+    "dataloader",
+    "typescript"
+  ],
+  "homepage": "https://github.com/vatvit/freshen/tree/main/packages/ts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vatvit/freshen.git",
+    "directory": "packages/ts"
+  },
+  "bugs": {
+    "url": "https://github.com/vatvit/freshen/issues"
+  },
   "sideEffects": false,
-  "files": ["dist"],
+  "files": ["dist", "CHANGELOG.md", "LICENSE"],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,7 +52,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix"
   },
   "peerDependencies": {
