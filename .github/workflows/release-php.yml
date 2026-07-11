@@ -9,7 +9,7 @@ name: Release PHP → Packagist mirror
 #   1. Create the mirror repo (default: vatvit/freshen-php). Keep its default branch a
 #      composer.json-free placeholder (a README) so no `dev-*` version appears.
 #   2. Add a PAT with push access to the mirror as secret MIRROR_TOKEN.
-#   3. Register the mirror on Packagist as package vatvit/freshen.
+#   3. Register the mirror on Packagist as package vatvit/freshen-php.
 #   4. Release by tagging: git tag php-v1.0.0-rc.1 && git push origin php-v1.0.0-rc.1
 
 on:
@@ -21,7 +21,7 @@ jobs:
     uses: ./.github/workflows/publish-package.yml
     with:
       package_dir: packages/php
-      composer_name: vatvit/freshen
+      composer_name: vatvit/freshen-php
       mirror_repo: vatvit/freshen-php
     secrets:
       MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
