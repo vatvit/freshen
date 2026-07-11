@@ -1,17 +1,18 @@
 # Freshen (PHP)
 
-> **Instant reads, no cache stampedes.** Stale-while-revalidate caching for PHP — serve
-> cached data instantly, refresh it in the background, and let just one worker rebuild a
-> hot key.
+> **Finally, full control over your caching — in one library.**
 
 [![Packagist Version](https://img.shields.io/packagist/v/vatvit/freshen-php)](https://packagist.org/packages/vatvit/freshen-php)
 [![PHP Version](https://img.shields.io/packagist/php-v/vatvit/freshen-php)](https://packagist.org/packages/vatvit/freshen-php)
 [![License](https://img.shields.io/packagist/l/vatvit/freshen-php)](https://github.com/vatvit/freshen/blob/main/LICENSE)
 
-Wrap any expensive read — a database query, an API call, a rendered fragment — and Freshen
-serves it from cache in microseconds, quietly recomputing in the background before it goes
-stale. When a hot key *does* expire, **exactly one** worker rebuilds it while everyone else
-keeps getting the last good value. Runs natively on **PHP 8.1 → 8.4**
+Freshen brings together the caching pieces you normally wire up by hand: **single-flight**
+recompute so exactly one worker rebuilds a hot key while everyone else is served the last
+good value (**no cache-stampede**); **preemptive refresh** that recomputes an entry *before*
+it goes stale, on TTLs and jitter you control; **structured keys** with exact-or-prefix
+invalidation; and **built-in metrics** on every hit, miss, and rebuild. Wrap any expensive
+read — a database query, an API call, a rendered fragment — and every cache-related decision
+is explicit and yours. Runs natively on **PHP 8.1 → 8.4**
 ([`COMPATIBILITY.md`](../../COMPATIBILITY.md)).
 
 ## Features
@@ -30,12 +31,18 @@ keeps getting the last good value. Runs natively on **PHP 8.1 → 8.4**
   delete) over a Stash PSR-6 pool; swap in any PSR-6 backend.
 - **Built-in metrics & fail-open** — hit/miss/recompute metrics out of the box, and it
   serves through backend hiccups instead of failing the request.
-- **Drop-in framework bridges** — first-class Symfony
-  ([`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony)) and
-  Laravel ([`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel))
-  packages.
 - **Modern, typed PHP** — native PHP 8.1 → 8.4 (single source, no downgrade build),
   PHPStan-max, MIT.
+
+## Framework bridges
+
+On **Symfony** or **Laravel**? Skip the wiring — a drop-in bridge gives you everything above
+from declarative config (`composer require` and you're done):
+
+| Framework | Package | Docs |
+|-----------|---------|------|
+| Symfony `^6.4 \|\| ^7.0` | [`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony) | [bridge README](../symfony/README.md) |
+| Laravel `^11 \|\| ^12` (PHP 8.2+) | [`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel) | [bridge README](../laravel/README.md) |
 
 ## At a glance
 
@@ -360,16 +367,8 @@ standards you already use, so wire it like any other service:
 
 ## Framework integration
 
-**Use a bridge — `composer require` and you're done.** Drop-in packages wire the pool,
-loader, jitter and async listeners from declarative config so you don't hand-wire
-anything:
-
-| Framework | Package | Docs |
-|-----------|---------|------|
-| Symfony `^6.4 \|\| ^7.0` | [`vatvit/freshen-symfony`](https://packagist.org/packages/vatvit/freshen-symfony) | [bridge README](../symfony/README.md) |
-| Laravel `^11 \|\| ^12` (PHP 8.2+) | [`vatvit/freshen-laravel`](https://packagist.org/packages/vatvit/freshen-laravel) | [bridge README](../laravel/README.md) |
-
-Three principles hold whichever path you take: (1) Freshen needs a **Stash** pool (not the
+Prefer a **[drop-in bridge](#framework-bridges)** on Symfony or Laravel — it wires all of
+this for you. Three principles hold whichever path you take: (1) Freshen needs a **Stash** pool (not the
 framework's own PSR-6 pool); (2) async needs a **PSR-14** dispatcher — **Symfony's is**
 PSR-14, **Laravel's is not** (its bridge ships a PSR-14 adapter + queue); and (3) **a
 `Cache` is per-dataset** — one loader, its own TTLs. A second dataset is a second loader +
