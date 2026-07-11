@@ -89,8 +89,9 @@ public function __construct(private FreshenManager $freshen) {}
 $this->freshen->cache('prices')->get($key);
 ```
 
-(Injecting a bare `Freshen\Cache` is intentionally **not** supported — with many datasets
-it would be ambiguous which one you mean.)
+(You inject **`FreshenManager`** (or use the `Freshen` facade), never a bare
+`Freshen\Cache`: with several datasets Laravel can't autowire `Freshen\Cache` by type, so
+it isn't bound — you always ask for a cache **by name**.)
 
 ## Async invalidation (queue)
 
@@ -99,9 +100,38 @@ that pushes async operations onto Laravel's **queue**. `invalidate()` / `invalid
 / `refresh()` (async by default) dispatch a `ProcessFreshenAsyncEvent` job that runs the
 cache's `Freshen\AsyncHandler` on a worker — off the request.
 
+```php
+use Freshen\Bridge\Laravel\Facades\Freshen;
+use Freshen\Key;
+
+// e.g. a model observer: when a product changes, drop its cached view
+class ProductObserver
+{
+    public function saved(Product $product): void
+    {
+        $key = new Key('product', 'detail', $product->id);
+
+        Freshen::cache('top_sellers')->invalidate($key);   // async → enqueues a job
+        // Freshen::cache('top_sellers')->refresh($key);    // async recompute + store
+    }
+}
+```
+
+```bash
+php artisan queue:work        # a worker runs the invalidation off the request
+```
+
+Need a specific call to run inline (no worker)? Pass `SyncMode::SYNC`:
+
+```php
+use Freshen\SyncMode;
+
+Freshen::cache('top_sellers')->invalidate($key, SyncMode::SYNC);   // runs now, skips the queue
+```
+
 - Configure the connection/queue via `config/freshen.php` `queue` (or the
   `FRESHEN_QUEUE_CONNECTION` / `FRESHEN_QUEUE` env vars).
-- Set the connection to `sync` to run invalidation **inline** (no worker needed).
+- Set the connection to `sync` to run **all** of a cache's invalidations inline (no worker).
 - Run a worker for true off-request async: `php artisan queue:work`.
 
 Each job carries its **target cache name**, so async invalidation is routed to exactly
