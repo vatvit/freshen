@@ -6,7 +6,7 @@
     "keywords": ["cache", "stale-while-revalidate", "swr", "stampede", "symfony", "bundle", "freshen"],
     "require": {
         "php": ">=8.1",
-        "vatvit/freshen": "^1.0@rc",
+        "vatvit/freshen-php": "^1.0",
         "psr/event-dispatcher": "^1.0",
         "symfony/config": "^6.4 || ^7.0",
         "symfony/dependency-injection": "^6.4 || ^7.0",
