@@ -53,8 +53,10 @@ export { systemClock } from './clock.js';
 export { HookBus, metricsSubscriber } from './hooks.js';
 export type { HookEvent, HookListener, GetOutcome } from './hooks.js';
 
-// Async model (events; handler + bindings arrive with FRSH-045)
+// Async model — events + handler + in-process EventEmitter binding
 export { AsyncEvent, InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
+export { AsyncHandler, InProcessAsyncDispatcher } from './async-handler.js';
+export type { AsyncErrorSink } from './async-handler.js';
 
 // Errors
 export { InvalidArgumentError, MissingValueError, AsyncDispatcherError } from './errors.js';
