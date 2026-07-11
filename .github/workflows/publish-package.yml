@@ -73,8 +73,8 @@ jobs:
 
           cd "$work"
           git init -q
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "vatvit"
+          git config user.email "vatvit@gmail.com"
           git remote add origin "https://x-access-token:${MIRROR_TOKEN}@github.com/${{ inputs.mirror_repo }}.git"
           git add -A
           git commit -q -m "Release v${ver}"
@@ -104,8 +104,8 @@ jobs:
               "${pkg}/README.md" >> "$work/README.md"
 
           cd "$work"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "vatvit"
+          git config user.email "vatvit@gmail.com"
           if git diff --quiet -- README.md; then
             echo "Mirror README already up to date."
           else
