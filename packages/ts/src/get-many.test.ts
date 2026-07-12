@@ -3,6 +3,7 @@ import { Cache } from './cache.js';
 import { Key } from './key.js';
 import { MemoryStore } from './store/memory-store.js';
 import { RedisDriver } from './driver/redis-driver.js';
+import { RedisLock } from './lock/redis-lock.js';
 import { FakeRedis } from './testing/fake-redis.js';
 import type { Clock } from './clock.js';
 import type { Jitter } from './ports.js';
@@ -74,7 +75,7 @@ describe('Cache.getMany (FRSH-049)', () => {
       hardTtlSec: 600,
       precomputeSec: 60,
       store: driver,
-      singleFlight: driver,
+      lock: new RedisLock(redis),
       jitter: noJitter,
       clock,
     });

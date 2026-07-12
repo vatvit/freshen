@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RedisDriver } from './redis-driver.js';
+import { RedisLock } from '../lock/redis-lock.js';
 import { FakeRedis } from '../testing/fake-redis.js';
 import { Cache } from '../cache.js';
 import { Key } from '../key.js';
@@ -73,36 +74,20 @@ describe('RedisDriver', () => {
     expect(await driver.read('product/list/a')).toBeDefined();
   });
 
-  it('acquire is an atomic NX lock returning a token; fenced release frees it', async () => {
-    const driver = new RedisDriver(new FakeRedis());
-    const token = await driver.acquire('k', 30);
-    expect(token).not.toBeNull();
-    expect(await driver.acquire('k', 30)).toBeNull(); // held
-    await driver.release('k', token as string);
-    expect(await driver.acquire('k', 30)).not.toBeNull(); // free again
-  });
-
-  it('release with a foreign token does NOT free another leader\'s lock (fenced unlock)', async () => {
-    const driver = new RedisDriver(new FakeRedis());
-    const mine = await driver.acquire('k', 30);
-    await driver.release('k', 'someone-elses-token'); // must be a no-op
-    expect(await driver.acquire('k', 30)).toBeNull(); // still held by `mine`
-    await driver.release('k', mine as string);
-    expect(await driver.acquire('k', 30)).not.toBeNull();
-  });
 });
 
-describe('Cache over RedisDriver — single-flight', () => {
+describe('Cache over RedisDriver + RedisLock — single-flight', () => {
   it('two concurrent cold gets recompute once (leader) and the other is served the fill', async () => {
     const clock = { now: () => 1000 };
-    const driver = new RedisDriver<string>(new FakeRedis());
+    const redis = new FakeRedis();
+    const driver = new RedisDriver<string>(redis);
     const loader = vi.fn(() => 'value');
     const cache = new Cache<string>({
       loader,
       hardTtlSec: 600,
       precomputeSec: 60,
       store: driver,
-      singleFlight: driver,
+      lock: new RedisLock(redis),
       jitter: noJitter,
       clock,
       followerWaitMs: 500,

@@ -21,10 +21,13 @@ the `Key` model reproduces the frozen cross-language parity oracle byte-for-byte
   follower serve-stale / bounded wait / fail-open|closed), `ValueResult`, the `Entry`
   storage envelope, `DefaultJitter` (CRC-32 parity), `CallableLoader`, the default
   in-memory `MemoryStore`, and `InProcessSingleFlight`.
-- **Redis driver** — client-agnostic `RedisDriver` over a tiny `RedisLike` port, with
-  `ioredisAdapter` / `nodeRedisAdapter` (no hard client dependency): atomic `SET NX`
-  single-flight, exact/prefix-subtree/batch delete, and `MGET`. `KeyvStore` for the
-  degraded generic-store path.
+- **Storage & locking** — two independent strategies: a `Store` (default `MemoryStore`;
+  `RedisDriver` / `KeyvStore` optional) and a `SingleFlightLock` (default `InProcessLock`;
+  `RedisLock` for cluster-wide `SET NX` + Lua fenced unlock). The client-agnostic Redis
+  pieces sit over a tiny `RedisLike` port with `ioredisAdapter` / `nodeRedisAdapter` (no
+  hard client dependency); `RedisDriver` provides exact/prefix-subtree/batch delete + `MGET`.
+- **`createFreshen` factory** — configure a shared store/lock/metrics once and build a
+  `Cache` per dataset (keys namespaced by `domain`/`facet`).
 - **Async model** — per-op events (`InvalidateEvent` / `InvalidateExactEvent` /
   `RefreshEvent`), `AsyncHandler`, and the in-process `InProcessAsyncDispatcher`
   (Node `EventEmitter`); documented BullMQ off-process recipe (no queue dependency).

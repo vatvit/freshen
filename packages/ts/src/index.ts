@@ -19,6 +19,10 @@ export { softExpiresAt } from './item.js';
 export { Cache } from './cache.js';
 export type { CacheOptions } from './cache.js';
 
+// Factory — configure a shared store/lock/metrics once, stamp out a Cache per dataset
+export { Freshen, createFreshen } from './factory.js';
+export type { FreshenOptions } from './factory.js';
+
 // Collaborators (interfaces + bundled defaults)
 export type {
   Loader,
@@ -27,7 +31,7 @@ export type {
   Metrics,
   Store,
   Driver,
-  SingleFlight,
+  SingleFlightLock,
   EventDispatcher,
   Selector,
 } from './ports.js';
@@ -40,11 +44,15 @@ export { MemoryStore } from './store/memory-store.js';
 export { LruStore } from './store/lru-store.js';
 export { KeyvStore } from './store/keyv-store.js';
 export type { KeyvLike } from './store/keyv-store.js';
-export { InProcessSingleFlight } from './single-flight.js';
 export { withCodec, gzipJsonCodec } from './codec.js';
 export type { Codec } from './codec.js';
 
-// Redis driver (client-agnostic; inject an ioredis/node-redis adapter)
+// Lock strategies (single-flight): in-memory default + Redis
+export { InProcessLock } from './lock/in-process-lock.js';
+export { RedisLock } from './lock/redis-lock.js';
+export type { RedisLockOptions } from './lock/redis-lock.js';
+
+// Redis driver (client-agnostic store; inject an ioredis/node-redis adapter)
 export { RedisDriver } from './driver/redis-driver.js';
 export type { RedisDriverOptions } from './driver/redis-driver.js';
 export { ioredisAdapter, nodeRedisAdapter } from './driver/adapters.js';

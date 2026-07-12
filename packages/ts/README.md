@@ -65,10 +65,6 @@ Those are good libraries — Freshen is honest about the overlap and the differe
 If you only need "memoize with a TTL", reach for the smaller tool. If you keep re-inventing
 the stampede/precompute/invalidation glue around it, that glue is what Freshen is.
 
-> **Non-goal:** value validation on read (a `checkValue`-style hook). Freshen returns stored
-> data as-is; shape correctness is business logic, handled upstream via `schemaVersion` + batch
-> invalidation.
-
 ## At a glance
 
 The common case is two lines and you never touch the store, a stampede, or serialisation:
@@ -150,31 +146,66 @@ if (!r.isMiss()) {          // a cached null is a real HIT — isMiss distinguis
 }
 ```
 
-### 2. Wire Redis for the strong guarantees
+### 2. Storage & locking — two independent strategies
 
-The default in-memory store is real and unit-testable, but single-process. For **atomic
-cluster-wide single-flight** and **atomic exact/prefix/batch delete**, inject the Redis
-driver. It is **client-agnostic** — pass an adapter over the client you already use:
+Freshen has **two** pluggable collaborators, and they answer different questions:
+
+- **`store`** — *where cached values live* (`read`/`write`/`delete…`). Default:
+  `MemoryStore` (in-process, zero deps). Swap in `RedisDriver`, or `KeyvStore` over any
+  [keyv](https://keyv.org) backend.
+- **`lock`** — *how the stampede lock is coordinated* (single-flight leader election,
+  `acquire`/`release`). Default: `InProcessLock`. Swap in `RedisLock` for a true
+  cluster-wide lock.
+
+They're separate because **cross-process single-flight fundamentally needs an atomic
+conditional write** (Redis `SET NX`), which a plain store (keyv, in-memory) can't provide.
+So you choose them independently:
+
+| `store` | `lock` | Values | Stampede prevention | `getMany` (`MGET`) + atomic batch/prefix delete |
+|---|---|---|---|---|
+| `MemoryStore` (default) | `InProcessLock` (default) | this process | within this process | — |
+| `KeyvStore` | `InProcessLock` | shared backend | **best-effort** (per-process) | degraded (N reads) |
+| `KeyvStore` | `RedisLock` | shared backend | **cluster-wide** | degraded |
+| `RedisDriver` | `RedisLock` | Redis | **cluster-wide** | full |
+
+Single-flight strength follows **`lock`**; batch/atomic-delete follows **`store`** (the cache
+feature-detects a driver store). Wire the Redis strategies from the same client:
 
 ```ts
-import { Cache, RedisDriver, ioredisAdapter } from '@vatvit/freshen';
+import { Cache, RedisDriver, RedisLock, ioredisAdapter } from '@vatvit/freshen';
 import Redis from 'ioredis';
 
-const driver = new RedisDriver(ioredisAdapter(new Redis(process.env.REDIS_URL)));
+const redis = ioredisAdapter(new Redis(process.env.REDIS_URL));
 // (or nodeRedisAdapter(createClient(...)) — both support every command Freshen needs)
 
 const cache = new Cache<Product[]>({
   loader: (key) => repo.topSellers(key.id()),
   hardTtlSec: 3600,
   precomputeSec: 60,
-  store: driver,          // strong store: SET NX lock, atomic deletes, MGET
-  singleFlight: driver,   // same object also provides the cross-process lock
+  store: new RedisDriver(redis),   // values + atomic deletes + MGET
+  lock: new RedisLock(redis),      // cross-process single-flight (SET NX + fenced unlock)
 });
 ```
 
-On any other store you get **best-effort** single-flight (in-process) and non-atomic delete —
-documented degraded guarantees. `KeyvStore` adapts any [keyv](https://keyv.org) backend for
-that path.
+### 2b. One shared store for many caches — `createFreshen`
+
+A `Cache` is per-dataset, so an app has several. Set the shared store/lock/metrics **once**
+and stamp out a cache per dataset (keys are namespaced by `domain`/`facet`, so one store holds
+them all):
+
+```ts
+import { createFreshen, RedisDriver, RedisLock } from '@vatvit/freshen';
+
+const freshen = createFreshen({
+  store: new RedisDriver(redis),
+  lock: new RedisLock(redis),
+  metrics,
+});
+
+const topSellers = freshen.cache<Product[]>({ loader: loadTop, hardTtlSec: 3600, precomputeSec: 60 });
+const categories = freshen.cache<Category[]>({ loader: loadCats, hardTtlSec: 600 });
+// each inherits the shared store/lock/metrics; per-dataset TTLs & overrides still work
+```
 
 ### 3. Invalidate & refresh
 
@@ -266,14 +297,14 @@ a bounded-LRU **L1** over a Redis **L2** — read cascade L1 → L2 → source w
 backfill, per-tier TTLs, and coherent invalidation across both tiers:
 
 ```ts
-import { tieredCache, RedisDriver, ioredisAdapter } from '@vatvit/freshen';
+import { tieredCache, RedisDriver, RedisLock, ioredisAdapter } from '@vatvit/freshen';
 import Redis from 'ioredis';
 
-const l2driver = new RedisDriver(ioredisAdapter(new Redis()));
+const redis = ioredisAdapter(new Redis());
 const cache = tieredCache<Product[]>({
   loader: (key) => repo.topSellers(key.id()),         // the source (DB)
   l1: { max: 10_000, hardTtlSec: 5 },                 // bounded LRU; short TTL = coherence backstop
-  l2: { store: l2driver, singleFlight: l2driver, hardTtlSec: 3600, precomputeSec: 60 },
+  l2: { store: new RedisDriver(redis), lock: new RedisLock(redis), hardTtlSec: 3600, precomputeSec: 60 },
 });
 
 await cache.get(key);                 // L1 → L2 → source, backfilling L1

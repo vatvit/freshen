@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { SingleFlight } from './ports.js';
+import type { SingleFlightLock } from '../ports.js';
 
 /**
  * Best-effort, process-local single-flight (PARITY §7 tier 2). The default when no
@@ -14,7 +14,7 @@ import type { SingleFlight } from './ports.js';
  * (FRSH-044) swaps in an atomic cross-process `SET NX` lock with no change to the
  * cache's read state machine.
  */
-export class InProcessSingleFlight implements SingleFlight {
+export class InProcessLock implements SingleFlightLock {
   private readonly held = new Map<string, string>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 

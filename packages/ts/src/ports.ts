@@ -79,7 +79,7 @@ export function isDriver<T>(store: Store<T>): store is Driver<T> {
  * its TTL if a leader dies. The core ships an in-process default; the Redis driver
  * swaps in an atomic `SET NX` implementation (FRSH-044).
  */
-export interface SingleFlight {
+export interface SingleFlightLock {
   acquire(key: string, ttlSec: number): Promise<string | null>;
   release(key: string, token: string): Promise<void>;
 }

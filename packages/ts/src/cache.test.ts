@@ -7,7 +7,7 @@ import { AsyncDispatcherError, InvalidArgumentError } from './errors.js';
 import { SyncMode } from './sync-mode.js';
 import type { Clock } from './clock.js';
 import type { Entry } from './item.js';
-import type { EventDispatcher, Jitter, Metrics, SingleFlight, Store } from './ports.js';
+import type { EventDispatcher, Jitter, Metrics, SingleFlightLock, Store } from './ports.js';
 
 function fakeClock(start = 1000): Clock & { set(t: number): void } {
   let t = start;
@@ -18,7 +18,7 @@ function fakeClock(start = 1000): Clock & { set(t: number): void } {
 const noJitter: Jitter = { apply: (ttl) => ttl };
 
 /** A single-flight that always loses the election (simulates another leader). */
-const alwaysLost: SingleFlight = {
+const alwaysLost: SingleFlightLock = {
   acquire: () => Promise.resolve(null),
   release: () => Promise.resolve(),
 };
@@ -119,7 +119,7 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
       precomputeSec: 60,
       store,
       jitter: noJitter,
-      singleFlight: alwaysLost,
+      lock: alwaysLost,
       clock,
       metrics,
     });
@@ -142,7 +142,7 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
       precomputeSec: 60,
       store,
       jitter: noJitter,
-      singleFlight: alwaysLost,
+      lock: alwaysLost,
       clock,
       metrics,
     });
@@ -164,7 +164,7 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
       precomputeSec: 60,
       store,
       jitter: noJitter,
-      singleFlight: alwaysLost,
+      lock: alwaysLost,
       clock,
       metrics,
       followerWaitMs: 500,
@@ -193,7 +193,7 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
       precomputeSec: 600, // soft == createdAt
       store,
       jitter: noJitter,
-      singleFlight: alwaysLost,
+      lock: alwaysLost,
       clock,
       followerWaitMs: 500,
       followerPollMs: 10,
@@ -240,7 +240,7 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
       precomputeSec: 60,
       store,
       jitter: noJitter,
-      singleFlight: alwaysLost,
+      lock: alwaysLost,
       clock,
       metrics,
       failOpen: true,
@@ -267,7 +267,7 @@ describe('Cache.get — read state machine (PARITY §7)', () => {
       precomputeSec: 60,
       store: new MemoryStore(clock),
       jitter: noJitter,
-      singleFlight: alwaysLost,
+      lock: alwaysLost,
       clock,
       metrics,
       failOpen: false,

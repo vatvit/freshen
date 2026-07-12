@@ -1,43 +1,34 @@
-import { randomUUID } from 'node:crypto';
 import type { Entry } from '../item.js';
-import type { Driver, SingleFlight } from '../ports.js';
+import type { Driver } from '../ports.js';
 import type { RedisLike } from './redis-like.js';
-
-/** Fenced unlock: delete the lock only if this caller still owns the token. */
-const RELEASE_LOCK_LUA =
-  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 export interface RedisDriverOptions {
   /** Key namespace prefixed to every stored key. Default `'freshen'`. */
   namespace?: string;
-  /** Namespace for single-flight lock keys. Default `'{namespace}:lock'`. */
-  lockNamespace?: string;
   /** SCAN page size for prefix-subtree deletes. Default 512. */
   scanCount?: number;
 }
 
 /**
- * The Redis-aware backend (FRSH-044) — the TS analogue of PHP's `Freshen\Driver\Redis`.
- * Upgrades the core's best-effort guarantees to Freshen's **strong** ones over a
+ * The Redis-aware **store** (FRSH-044) — the TS analogue of PHP's `Freshen\Driver\Redis`.
+ * Upgrades the core's best-effort delete/read to Freshen's **strong** ones over a
  * {@link RedisLike} client (client-agnostic; inject an ioredis/node-redis adapter):
  *
- *  - **Single-flight** — atomic `SET … NX PX` leader election ({@link SingleFlight}),
- *    the analogue of PHP `Item::lock()`. A lock self-heals via its `PX` TTL.
  *  - **Atomic delete** — exact (`DEL k`), batch (`DEL k1 k2 …`), and prefix-subtree
  *    (`SCAN` + `DEL`, never `KEYS`). Exact delete removes only the named key; prefix
  *    delete removes the key **and** its `key/*` subtree (PARITY §8).
  *  - **Batch read** — `MGET` (feeds getMany, FRSH-049).
  *
- * One instance implements both {@link Driver} (the store) and {@link SingleFlight}
- * (the lock); wire it as both: `new Cache({ store: driver, singleFlight: driver, … })`.
+ * This is a **store strategy only**. The cross-process single-flight **lock** is the
+ * separate {@link RedisLock} strategy (`src/lock/`); wire them from the same client:
+ * `new Cache({ store: new RedisDriver(redis), lock: new RedisLock(redis) })`.
  *
  * Values are stored as JSON of the {@link Entry} envelope, so `T` must be
  * JSON-serialisable. A corrupt/undecodable value is treated as a miss (fail-open
  * spirit) rather than throwing into the read path.
  */
-export class RedisDriver<T = unknown> implements Driver<T>, SingleFlight {
+export class RedisDriver<T = unknown> implements Driver<T> {
   private readonly ns: string;
-  private readonly lockNs: string;
   private readonly scanCount: number;
 
   constructor(
@@ -45,7 +36,6 @@ export class RedisDriver<T = unknown> implements Driver<T>, SingleFlight {
     options: RedisDriverOptions = {},
   ) {
     this.ns = options.namespace ?? 'freshen';
-    this.lockNs = options.lockNamespace ?? `${this.ns}:lock`;
     this.scanCount = options.scanCount ?? 512;
   }
 
@@ -95,30 +85,10 @@ export class RedisDriver<T = unknown> implements Driver<T>, SingleFlight {
     } while (cursor !== '0');
   }
 
-  // --- SingleFlight (atomic cross-process leader election) ---
-
-  async acquire(key: string, ttlSec: number): Promise<string | null> {
-    const token = randomUUID();
-    const won = await this.redis.set(this.lockKey(key), token, {
-      pxMs: Math.max(1, ttlSec) * 1000,
-      nx: true,
-    });
-    return won ? token : null;
-  }
-
-  /** Fenced unlock: only delete the lock if we still hold this token (Lua CAS). */
-  async release(key: string, token: string): Promise<void> {
-    await this.redis.eval(RELEASE_LOCK_LUA, [this.lockKey(key)], [token]);
-  }
-
   // --- internals ---
 
   private k(key: string): string {
     return `${this.ns}:${key}`;
-  }
-
-  private lockKey(key: string): string {
-    return `${this.lockNs}:${key}`;
   }
 
   private decode(raw: string | null): Entry<T> | undefined {

@@ -16,12 +16,12 @@ import type {
   Loader,
   Metrics,
   Selector,
-  SingleFlight,
+  SingleFlightLock,
   Store,
 } from './ports.js';
 import { isDriver } from './ports.js';
 import { MemoryStore } from './store/memory-store.js';
-import { InProcessSingleFlight } from './single-flight.js';
+import { InProcessLock } from './lock/in-process-lock.js';
 import { SyncMode } from './sync-mode.js';
 import { ValueResult } from './value-result.js';
 
@@ -41,8 +41,8 @@ export interface CacheOptions<T = unknown> {
   store?: Store<T>;
   /** TTL jitter. Default: {@link DefaultJitter} at 15%. */
   jitter?: Jitter;
-  /** Single-flight lock. Default: {@link InProcessSingleFlight}. */
-  singleFlight?: SingleFlight;
+  /** Single-flight lock. Default: {@link InProcessLock}. */
+  lock?: SingleFlightLock;
   /** Event dispatcher for ASYNC ops (required only for async). */
   dispatcher?: EventDispatcher;
   /** Observability sink — wired as a built-in hook subscriber (PARITY §10). */
@@ -118,7 +118,7 @@ export class Cache<T = unknown> {
   private readonly precomputeSec: number;
   private readonly store: Store<T>;
   private readonly jitter: Jitter;
-  private readonly singleFlight: SingleFlight;
+  private readonly lock: SingleFlightLock;
   private readonly dispatcher?: EventDispatcher;
   private readonly hooks = new HookBus();
   private readonly failOpen: boolean;
@@ -138,7 +138,7 @@ export class Cache<T = unknown> {
       precomputeSec = 0,
       store,
       jitter,
-      singleFlight,
+      lock,
       dispatcher,
       metrics,
       hooks,
@@ -168,7 +168,7 @@ export class Cache<T = unknown> {
     this.precomputeSec = precomputeSec;
     this.store = store ?? new MemoryStore<T>(clock);
     this.jitter = jitter ?? new DefaultJitter();
-    this.singleFlight = singleFlight ?? new InProcessSingleFlight();
+    this.lock = lock ?? new InProcessLock();
     this.dispatcher = dispatcher;
     // Metrics are just a built-in hook subscriber — no separate emit path.
     if (metrics !== undefined) {
@@ -223,7 +223,7 @@ export class Cache<T = unknown> {
       }
 
       // Soft-expired (or past hard). Elect a single recomputer via the lock.
-      const token = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
+      const token = await this.lock.acquire(keyStr, this.lockTtlSec);
       if (token !== null) {
         return this.leaderCompute(key, token);
       }
@@ -247,7 +247,7 @@ export class Cache<T = unknown> {
     }
 
     // Cold key: elect a recomputer.
-    const token = await this.singleFlight.acquire(keyStr, this.lockTtlSec);
+    const token = await this.lock.acquire(keyStr, this.lockTtlSec);
     if (token !== null) {
       return this.leaderCompute(key, token);
     }
@@ -415,7 +415,7 @@ export class Cache<T = unknown> {
       // A release failure (e.g. a Redis blip) must not override the computed result;
       // the lock self-heals via its TTL. Fire-and-forget.
       try {
-        await this.singleFlight.release(key.toString(), token);
+        await this.lock.release(key.toString(), token);
       } catch {
         // ignore — lock will expire on its own
       }

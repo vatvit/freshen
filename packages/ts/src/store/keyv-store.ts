@@ -19,7 +19,7 @@ export interface KeyvLike<T = unknown> {
  * store (Redis, Mongo, DynamoDB, …) with no code change" path (FRSH-044 architecture).
  *
  * **Degraded guarantees** (the JS twin of FRSH-036): a generic keyv store gives no
- * atomic single-flight (pair with {@link InProcessSingleFlight} — best-effort within
+ * atomic single-flight (pair with {@link InProcessLock} — best-effort within
  * one process) and no atomic subtree delete. `deletePrefix` is best-effort via keyv's
  * `iterator()` when available, and throws otherwise — for real hierarchical
  * invalidation across processes, use the Redis driver.

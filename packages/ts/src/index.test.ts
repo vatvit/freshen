@@ -17,7 +17,7 @@ describe('public API surface', () => {
       'CallableLoader',
       'DefaultJitter',
       'MemoryStore',
-      'InProcessSingleFlight',
+      'InProcessLock',
       'InvalidateEvent',
       'InvalidateExactEvent',
       'RefreshEvent',

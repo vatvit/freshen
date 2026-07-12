@@ -3,6 +3,7 @@ import {
   Cache,
   Key,
   RedisDriver,
+  RedisLock,
   ioredisAdapter,
   nodeRedisAdapter,
   SyncMode,
@@ -67,6 +68,7 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
   // Isolate every test in its own namespace so a live server needs no flush.
   const driverFor = <T>(): RedisDriver<T> =>
     new RedisDriver<T>(redis, { namespace: `frshit:${backend.name}:${ns++}` });
+  const lockFor = (): RedisLock => new RedisLock(redis, { namespace: `frshit-lock:${backend.name}:${ns}` });
 
   it('round-trips an entry', async () => {
     const d = driverFor();
@@ -74,15 +76,15 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
     expect(await d.read('product/detail/a')).toEqual(entry({ n: 1 }));
   });
 
-  it('SET NX gives exactly one leader, with a fenced (token) unlock', async () => {
-    const d = driverFor();
-    const token = await d.acquire('k', 30);
+  it('RedisLock: SET NX gives exactly one leader, with a fenced (token) unlock', async () => {
+    const lock = lockFor();
+    const token = await lock.acquire('k', 30);
     expect(token).not.toBeNull();
-    expect(await d.acquire('k', 30)).toBeNull();
-    await d.release('k', 'foreign-token'); // fenced: must NOT free someone else's lock
-    expect(await d.acquire('k', 30)).toBeNull();
-    await d.release('k', token as string);
-    expect(await d.acquire('k', 30)).not.toBeNull();
+    expect(await lock.acquire('k', 30)).toBeNull();
+    await lock.release('k', 'foreign-token'); // fenced: must NOT free someone else's lock
+    expect(await lock.acquire('k', 30)).toBeNull();
+    await lock.release('k', token as string);
+    expect(await lock.acquire('k', 30)).not.toBeNull();
   });
 
   it('exact delete leaves the subtree; prefix delete drops it', async () => {
@@ -119,7 +121,7 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
       hardTtlSec: 60,
       precomputeSec: 6,
       store: d,
-      singleFlight: d,
+      lock: lockFor(),
       jitter: noJitter,
       clock,
     });
@@ -147,7 +149,7 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
       hardTtlSec: 60,
       precomputeSec: 6,
       store: d,
-      singleFlight: d,
+      lock: lockFor(),
       jitter: noJitter,
       clock,
       followerWaitMs: 1000,

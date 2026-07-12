@@ -4,7 +4,7 @@ import type { Clock } from './clock.js';
 import { NotFoundError } from './errors.js';
 import type { Key } from './key.js';
 import type { LoaderFn } from './loader.js';
-import type { Loader, Selector, SingleFlight } from './ports.js';
+import type { Loader, Selector, SingleFlightLock } from './ports.js';
 import { LruStore } from './store/lru-store.js';
 import { SyncMode } from './sync-mode.js';
 import type { ValueResult } from './value-result.js';
@@ -22,7 +22,7 @@ export interface L1Options {
   hardTtlSec: number;
   precomputeSec?: number;
   clock?: Clock;
-  singleFlight?: SingleFlight;
+  lock?: SingleFlightLock;
 }
 
 export interface TieredCacheOptions<T = unknown> {
@@ -68,7 +68,7 @@ export class TieredCache<T = unknown> {
       hardTtlSec: options.l1.hardTtlSec,
       precomputeSec: options.l1.precomputeSec,
       clock,
-      singleFlight: options.l1.singleFlight,
+      lock: options.l1.lock,
       // L2 owns resilience (stale-if-error / negative caching); keep L1 a plain,
       // short-lived mirror so it never masks an L2 recovery.
       staleIfError: false,

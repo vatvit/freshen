@@ -5,6 +5,7 @@ import { Cache } from './cache.js';
 import { Key } from './key.js';
 import { MemoryStore } from './store/memory-store.js';
 import { RedisDriver } from './driver/redis-driver.js';
+import { RedisLock } from './lock/redis-lock.js';
 import { FakeRedis } from './testing/fake-redis.js';
 import { isDriver } from './ports.js';
 import type { Clock } from './clock.js';
@@ -61,7 +62,8 @@ describe('withCodec', () => {
   });
 
   it('preserves Driver capabilities (getMany still batches) when wrapping a driver', async () => {
-    const driver = new RedisDriver<unknown>(new FakeRedis());
+    const redis = new FakeRedis();
+    const driver = new RedisDriver<unknown>(redis);
     const store = withCodec(driver, gzipJsonCodec<string>());
     expect(isDriver(store as Store<string>)).toBe(true);
     const cache = new Cache<string>({
@@ -69,7 +71,7 @@ describe('withCodec', () => {
       hardTtlSec: 600,
       precomputeSec: 60,
       store,
-      singleFlight: driver,
+      lock: new RedisLock(redis),
       jitter: noJitter,
       clock,
     });
