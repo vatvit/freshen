@@ -36,6 +36,14 @@ export class FakeRedis implements RedisLike {
     return Promise.resolve(removed);
   }
 
+  incr(key: string): Promise<number> {
+    const cur = this.live(key)?.value;
+    const n = (cur === undefined ? 0 : parseInt(cur, 10)) + 1;
+    // Generation counters never expire (mirror Stash's pathdb — no TTL).
+    this.map.set(key, { value: String(n), expireAt: Infinity });
+    return Promise.resolve(n);
+  }
+
   mget(keys: string[]): Promise<Array<string | null>> {
     return Promise.resolve(keys.map((key) => this.live(key)?.value ?? null));
   }

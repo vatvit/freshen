@@ -13,6 +13,7 @@ export interface IoredisLike {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ...args: Array<string | number>): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
+  incr(key: string): Promise<number>;
   mget(...keys: string[]): Promise<Array<string | null>>;
   scan(cursor: string, ...args: Array<string | number>): Promise<[string, string[]]>;
   eval(script: string, numKeys: number, ...keysAndArgs: string[]): Promise<unknown>;
@@ -27,6 +28,7 @@ export interface NodeRedisLike {
     options?: { PX?: number; NX?: boolean },
   ): Promise<string | null>;
   del(keys: string | string[]): Promise<number>;
+  incr(key: string): Promise<number>;
   mGet(keys: string[]): Promise<Array<string | null>>;
   scan(cursor: number, options?: { MATCH?: string; COUNT?: number }): Promise<{ cursor: number; keys: string[] }>;
   eval(script: string, options?: { keys?: string[]; arguments?: string[] }): Promise<unknown>;
@@ -48,6 +50,7 @@ export function ioredisAdapter(client: IoredisLike): RedisLike {
       return res === 'OK';
     },
     del: (keys) => (keys.length > 0 ? client.del(...keys) : Promise.resolve(0)),
+    incr: (key) => client.incr(key),
     mget: (keys) => (keys.length > 0 ? client.mget(...keys) : Promise.resolve([])),
     scan: async (cursor, match, count): Promise<RedisScanPage> => {
       const [next, keys] = await client.scan(cursor, 'MATCH', match, 'COUNT', count);
@@ -73,6 +76,7 @@ export function nodeRedisAdapter(client: NodeRedisLike): RedisLike {
       return res === 'OK';
     },
     del: (keys) => (keys.length > 0 ? client.del(keys) : Promise.resolve(0)),
+    incr: (key) => client.incr(key),
     mget: (keys) => (keys.length > 0 ? client.mGet(keys) : Promise.resolve([])),
     scan: async (cursor, match, count): Promise<RedisScanPage> => {
       const res = await client.scan(Number(cursor), { MATCH: match, COUNT: count });

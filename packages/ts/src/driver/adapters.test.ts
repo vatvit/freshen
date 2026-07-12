@@ -10,6 +10,7 @@ describe('ioredisAdapter', () => {
       get: (k) => (calls.push(['get', k]), Promise.resolve(null)),
       set: (k, v, ...args) => (calls.push(['set', k, v, ...args]), Promise.resolve(setReturn.value)),
       del: (...keys) => (calls.push(['del', ...keys]), Promise.resolve(keys.length)),
+      incr: (k) => (calls.push(['incr', k]), Promise.resolve(1)),
       mget: (...keys) => (calls.push(['mget', ...keys]), Promise.resolve(keys.map(() => null))),
       scan: (cursor, ...args) => (calls.push(['scan', cursor, ...args]), Promise.resolve(['0', ['x']])),
       eval: (script, numKeys, ...rest) => (calls.push(['eval', script, numKeys, ...rest]), Promise.resolve(1)),
@@ -50,6 +51,12 @@ describe('ioredisAdapter', () => {
     await ioredisAdapter(client).eval('SCRIPT', ['k1'], ['a1', 'a2']);
     expect(calls[0]).toEqual(['eval', 'SCRIPT', 1, 'k1', 'a1', 'a2']);
   });
+
+  it('maps incr through to the client', async () => {
+    const { client, calls } = fake();
+    expect(await ioredisAdapter(client).incr('gen:k')).toBe(1);
+    expect(calls[0]).toEqual(['incr', 'gen:k']);
+  });
 });
 
 describe('nodeRedisAdapter', () => {
@@ -60,6 +67,7 @@ describe('nodeRedisAdapter', () => {
       get: (k) => (calls.push(['get', k]), Promise.resolve(null)),
       set: (k, v, options) => (calls.push(['set', k, v, options]), Promise.resolve(setReturn.value)),
       del: (keys) => (calls.push(['del', keys]), Promise.resolve(Array.isArray(keys) ? keys.length : 1)),
+      incr: (k) => (calls.push(['incr', k]), Promise.resolve(1)),
       mGet: (keys) => (calls.push(['mGet', keys]), Promise.resolve(keys.map(() => null))),
       scan: (cursor, options) => (
         calls.push(['scan', cursor, options]), Promise.resolve({ cursor: 0, keys: ['x'] })
@@ -95,5 +103,11 @@ describe('nodeRedisAdapter', () => {
     const { client, calls } = fake();
     await nodeRedisAdapter(client).eval('SCRIPT', ['k1'], ['a1']);
     expect(calls[0]).toEqual(['eval', 'SCRIPT', { keys: ['k1'], arguments: ['a1'] }]);
+  });
+
+  it('maps incr through to the client', async () => {
+    const { client, calls } = fake();
+    expect(await nodeRedisAdapter(client).incr('gen:k')).toBe(1);
+    expect(calls[0]).toEqual(['incr', 'gen:k']);
   });
 });
