@@ -329,7 +329,7 @@ const cache = new Cache({
     return row;                            // a transient throw → stale-if-error serves last-good
   },
   hardTtlSec: 3600, precomputeSec: 60,
-  staleIfError: true,          // (default) serve retained last-good when the loader throws
+  staleIfError: true,          // opt-in (default false): serve retained last-good when the loader throws
   staleIfErrorRetrySec: 10,    // circuit-breaker: don't re-hit the loader more than this often
   graceSec: 300,               // keep last-good 300s past hard expiry to serve it on error
   negativeTtlSec: 30,          // cache a not-found for 30s (0 = off)

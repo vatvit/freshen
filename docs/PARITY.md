@@ -240,6 +240,20 @@ Notes that are part of the contract:
   cached**. Its result state is **`HIT`** (a usable value), even though it did not
   come from and was not written to the store. `createdAt`/`softExpiresAt` are
   computed as if it had just been created.
+- **Serve-stale retention past hard expiry — a documented cross-port divergence.**
+  Tier 3 needs a *previous value* to still exist. The precompute window (tier 1
+  election) elects the leader **before** hard expiry, while the entry is still live,
+  so in steady state followers are served tier-3 `STALE` from that live entry — this
+  is reachable with the default config in every port. What differs is whether a
+  **past-hard** follower — a cold key, a hard refresh, or a post-invalidate read with
+  no precompute leader elected in time — can still be served the *expired* value: the
+  PHP reference (Stash) lingers the expired record and serves it via
+  `Invalidation::OLD`; a port whose backend **hard-deletes** at hard expiry (the TS
+  `MemoryStore` lazy-evict / Redis `SET PX`, with the default `graceSec = 0`) has
+  nothing to serve there and falls through to tier 4 (bounded wait) → tier 5
+  (fail-open). Retaining last-good *past hard expiry* for tier-3 (and stale-if-error)
+  is **opt-in** via a physical-retention extension (`graceSec` in TS). The retention
+  window is **not contract** ([§13](#13-what-is-not-contract)).
 
 ### 7.1 Post-write time stamps
 
@@ -412,6 +426,13 @@ languages/versions without breaking parity:
 - **The `asPool` escape hatch** and any host-specific backend accessor.
 - **Reversibility/exact bytes of a custom `idString` scheme** when a consumer
   overrides the default hook — the *default* scheme ([§6](#6-key-model)) IS parity.
+- **Retention of a value *past* hard expiry** — whether an expired entry lingers so a
+  *past-hard* caller can still be served it as tier-3 `STALE` / stale-if-error
+  ([§7](#7-the-read-state-machine-get)). The PHP reference lingers it (Stash read-time
+  expiry + `Invalidation::OLD`); a port MAY hard-delete at hard expiry and rely on the
+  precompute window + tier-4/5 instead, exposing an opt-in knob (TS `graceSec`) for
+  hosts that want past-hard retention. The *default* value of any such knob is also not
+  contract.
 
 ---
 

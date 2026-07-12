@@ -127,7 +127,9 @@ describe('stale-if-error (FRSH-048)', () => {
       clock,
       metrics,
       staleIfErrorRetrySec: 10,
-      staleIfError: opts?.staleIfError,
+      // These tests exercise the stale-if-error feature itself, so opt in unless a case
+      // overrides it (the ctor default is now OFF — covered separately below).
+      staleIfError: opts?.staleIfError ?? true,
       graceSec: opts?.graceSec,
     });
     await cache.get(KEY); // fill v1 at t=1000 (hard 1600, soft 1540)
@@ -174,6 +176,33 @@ describe('stale-if-error (FRSH-048)', () => {
   it('propagates the error when stale-if-error is disabled', async () => {
     const { cache, clock, outcome } = await seedStaleThenFail({ staleIfError: false });
     clock.set(1550);
+    outcome.throws = true;
+    await expect(cache.get(KEY)).rejects.toThrow('source down');
+  });
+
+  it('propagates the error by DEFAULT (staleIfError is off unless opted in)', async () => {
+    // Same setup as seedStaleThenFail but WITHOUT passing staleIfError — exercises the
+    // ctor default, which must be OFF (FRSH-057): a loader throw propagates by default.
+    const clock = fakeClock(1000);
+    const store = new MemoryStore(clock);
+    const outcome = { throws: false, value: 'v1' };
+    const loader = vi.fn(() => {
+      if (outcome.throws) {
+        throw new Error('source down');
+      }
+      return outcome.value;
+    });
+    const cache = new Cache<string>({
+      loader,
+      hardTtlSec: 600,
+      precomputeSec: 60,
+      store,
+      jitter: noJitter,
+      clock,
+      graceSec: 300, // last-good IS retained past hard — proves propagation is the default, not a retention gap
+    });
+    await cache.get(KEY); // fill v1 (hard 1600, soft 1540)
+    clock.set(1550); // due for recompute, last-good still retained
     outcome.throws = true;
     await expect(cache.get(KEY)).rejects.toThrow('source down');
   });

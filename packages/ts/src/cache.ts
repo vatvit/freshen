@@ -37,7 +37,13 @@ export interface CacheOptions<T = unknown> {
   loader: Loader<T> | LoaderFn<T>;
   /** Absolute lifetime of a cached entry, seconds. MUST be ≥ 1. */
   hardTtlSec: number;
-  /** Seconds before hard expiry the precompute window opens. MUST be in `[0, hardTtlSec]`. Default 0. */
+  /**
+   * Seconds before hard expiry the precompute window opens. MUST be in `[0, hardTtlSec]`.
+   * Default: `max(1, min(round(hardTtlSec * 0.1), 60))` — 10% of the hard TTL, floored at 1s
+   * and capped at 60s. Precompute + single-flight are the primary stampede defence, so the
+   * window is **on by default** (e.g. 60s for a 1h TTL, matching the PHP reference examples).
+   * Pass `0` to disable the window (soft expiry equals hard expiry).
+   */
   precomputeSec?: number;
   /** Backend store. Default: a process-local {@link MemoryStore}. */
   store?: Store;
@@ -77,8 +83,10 @@ export interface CacheOptions<T = unknown> {
   /**
    * stale-if-error (FRSH-048): when a recompute *throws* (a transient error, not a
    * {@link NotFoundError}) and a last-known-good value is still retained, serve it as
-   * STALE instead of propagating the error. Default `true` (availability bias, like
-   * `failOpen`). Retention is the hard TTL, extended by `graceSec` past hard expiry.
+   * STALE instead of propagating the error. Default `false` — a loader throw propagates by
+   * default (matching the PHP reference, which has no stale-on-error). Opt in to trade error
+   * propagation for availability. Retention is the hard TTL, extended by `graceSec` past hard
+   * expiry, so serving stale past hard also needs `graceSec > 0`.
    */
   staleIfError?: boolean;
   /**
@@ -144,7 +152,9 @@ export class Cache<T = unknown> {
     const {
       loader,
       hardTtlSec,
-      precomputeSec = 0,
+      // Derived from hardTtlSec (bound just above): 10% of the TTL, floored at 1s, capped at
+      // 60s. Precompute is on by default — the primary stampede defence (see CacheOptions).
+      precomputeSec = Math.max(1, Math.min(Math.round(hardTtlSec * 0.1), 60)),
       store,
       codec,
       jitter,
@@ -158,7 +168,7 @@ export class Cache<T = unknown> {
       followerWaitMs = 900,
       followerPollMs = 50,
       lockTtlSec = 30,
-      staleIfError = true,
+      staleIfError = false,
       staleIfErrorRetrySec = 10,
       negativeTtlSec = 0,
     } = options;
