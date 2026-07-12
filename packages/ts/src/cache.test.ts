@@ -71,6 +71,66 @@ describe('Cache — construction & validation', () => {
   });
 });
 
+describe('Cache — precomputeSec default (FRSH-057)', () => {
+  // Precompute is ON by default: max(1, min(round(hardTtlSec * 0.1), 60)). We observe the
+  // effective precomputeSec via a fresh fill's soft boundary: on tier 2, createdAt = now and
+  // softExpiresAt = now + hardTtlSec − precomputeSec (noJitter), so
+  // effectivePrecompute = hardTtlSec − (softExpiresAt − createdAt).
+  async function effectivePrecompute(hardTtlSec: number): Promise<number> {
+    const clock = fakeClock(1000);
+    const cache = new Cache<string>({
+      loader: () => 'v',
+      hardTtlSec,
+      store: new MemoryStore(clock),
+      jitter: noJitter,
+      clock,
+    });
+    const r = await cache.get(KEY); // tier-2 fill at t=1000
+    return hardTtlSec - (r.softExpiresAt()! - r.createdAt()!);
+  }
+
+  it('is 10% of hardTtlSec (3600 → 60, matching the PHP reference example)', async () => {
+    expect(await effectivePrecompute(3600)).toBe(60);
+  });
+  it('scales down for small TTLs (100 → 10)', async () => {
+    expect(await effectivePrecompute(100)).toBe(10);
+  });
+  it('caps at 60s for large TTLs (86400 → 60, not 8640)', async () => {
+    expect(await effectivePrecompute(86400)).toBe(60);
+  });
+  it('floors at 1s for a tiny TTL (1 → 1, still within [0, hardTtlSec])', async () => {
+    expect(await effectivePrecompute(1)).toBe(1);
+  });
+  it('is overridable — explicit 0 disables the window (soft == hard)', async () => {
+    const clock = fakeClock(1000);
+    const cache = new Cache<string>({
+      loader: () => 'v',
+      hardTtlSec: 600,
+      precomputeSec: 0,
+      store: new MemoryStore(clock),
+      jitter: noJitter,
+      clock,
+    });
+    const r = await cache.get(KEY);
+    expect(r.softExpiresAt()).toBe(r.createdAt()! + 600); // no window
+  });
+
+  it('opens a live precompute window by default: one caller recomputes, others stay fresh', async () => {
+    // hardTtlSec 600 → default precompute 60 → soft 1540. A read within the window elects
+    // exactly one recompute (leader) while the entry is still fresh — the default stampede guard.
+    const clock = fakeClock(1000);
+    const store = new MemoryStore(clock);
+    const loader = vi.fn(() => 'v');
+    const cache = new Cache<string>({ loader, hardTtlSec: 600, store, jitter: noJitter, clock });
+    await cache.get(KEY); // cold fill at 1000 (leader), loader call #1
+    expect(loader).toHaveBeenCalledTimes(1);
+    clock.set(1545); // inside the default precompute window (soft 1540 ≤ now < hard 1600)
+    const r = await cache.get(KEY);
+    expect(r.isHit()).toBe(true); // served without blocking
+    expect(loader).toHaveBeenCalledTimes(2); // one early recompute elected by the window
+  });
+});
+
 describe('Cache.get — read state machine (PARITY §7)', () => {
   it('tier 1: fresh hit within the soft window', async () => {
     const clock = fakeClock(1000);
