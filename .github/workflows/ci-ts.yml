@@ -52,5 +52,13 @@ jobs:
       - name: Smoke-load esm + cjs
         working-directory: .
         run: |
+          # The published package resolves dist/index.js as ESM via its own
+          # package.json "type": "module". The uploaded artifact contains only
+          # dist/, so recreate that marker here to reproduce real ESM resolution
+          # on the Node 16/18 floor — without it Node parses the ESM entry as
+          # CommonJS and the load fails with "Unexpected token 'export'".
+          # index.cjs stays CommonJS regardless (the .cjs extension wins).
+          echo '{"type":"module"}' > dist/package.json
+          node --version
           node -e "import('./dist/index.js').then(m => { if (!m.VERSION) throw new Error('esm load failed'); })"
           node -e "const m = require('./dist/index.cjs'); if (!m.VERSION) throw new Error('cjs load failed');"
