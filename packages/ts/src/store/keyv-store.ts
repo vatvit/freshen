@@ -1,17 +1,16 @@
-import type { Entry } from '../item.js';
 import type { Store } from '../ports.js';
 
 /**
  * The subset of a `keyv` instance {@link KeyvStore} uses (structural — no `keyv`
- * dependency). keyv handles its own (de)serialisation, so it stores/returns the
- * {@link Entry} envelope object directly.
+ * dependency). Freshen hands keyv an opaque **packed string** (the Cache owns the
+ * value's encoding, FRSH-060), so keyv only ever stores/returns a string.
  */
-export interface KeyvLike<T = unknown> {
-  get(key: string): Promise<Entry<T> | undefined>;
-  set(key: string, value: Entry<T>, ttlMs?: number): Promise<unknown>;
+export interface KeyvLike {
+  get(key: string): Promise<string | undefined>;
+  set(key: string, value: string, ttlMs?: number): Promise<unknown>;
   delete(key: string): Promise<boolean>;
   /** Present on keyv stores that support iteration; enables best-effort prefix delete. */
-  iterator?: (namespace?: string) => AsyncIterableIterator<[string, Entry<T>]>;
+  iterator?: (namespace?: string) => AsyncIterableIterator<[string, string]>;
 }
 
 /**
@@ -24,15 +23,15 @@ export interface KeyvLike<T = unknown> {
  * `iterator()` when available, and throws otherwise — for real hierarchical
  * invalidation across processes, use the Redis driver.
  */
-export class KeyvStore<T = unknown> implements Store<T> {
-  constructor(private readonly keyv: KeyvLike<T>) {}
+export class KeyvStore implements Store {
+  constructor(private readonly keyv: KeyvLike) {}
 
-  async read(key: string): Promise<Entry<T> | undefined> {
+  async read(key: string): Promise<string | undefined> {
     return (await this.keyv.get(key)) ?? undefined;
   }
 
-  async write(key: string, entry: Entry<T>, ttlSec: number): Promise<void> {
-    await this.keyv.set(key, entry, Math.max(1, ttlSec) * 1000);
+  async write(key: string, packed: string, ttlSec: number): Promise<void> {
+    await this.keyv.set(key, packed, Math.max(1, ttlSec) * 1000);
   }
 
   async deleteExact(key: string): Promise<void> {

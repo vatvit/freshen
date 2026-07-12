@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryStore } from './memory-store.js';
-import type { Entry } from '../item.js';
 import type { Clock } from '../clock.js';
 
 function fakeClock(start = 1000): Clock & { set(t: number): void } {
@@ -8,15 +7,14 @@ function fakeClock(start = 1000): Clock & { set(t: number): void } {
   return { now: () => t, set: (n) => (t = n) };
 }
 
-function entry(value: unknown, createdAt = 1000, hardExpiresAt = 1600): Entry {
-  return { value, createdAt, hardExpiresAt };
-}
+// The store is byte-agnostic (FRSH-060): it holds opaque packed strings, so tests use
+// plain string payloads and assert exact round-trip.
 
 describe('MemoryStore', () => {
   it('reads back what it wrote', async () => {
     const store = new MemoryStore();
-    await store.write('k', entry('v'), 600);
-    expect((await store.read('k'))?.value).toBe('v');
+    await store.write('k', 'packed-v', 600);
+    expect(await store.read('k')).toBe('packed-v');
   });
 
   it('returns undefined for a missing key', async () => {
@@ -26,7 +24,7 @@ describe('MemoryStore', () => {
   it('evicts lazily once physical TTL elapses', async () => {
     const clock = fakeClock(1000);
     const store = new MemoryStore(clock);
-    await store.write('k', entry('v'), 10); // physical expiry at 1010
+    await store.write('k', 'v', 10); // physical expiry at 1010
     clock.set(1009);
     expect(await store.read('k')).toBeDefined();
     clock.set(1010);
@@ -35,8 +33,8 @@ describe('MemoryStore', () => {
 
   it('deleteExact removes only the named key', async () => {
     const store = new MemoryStore();
-    await store.write('product/detail/a', entry(1), 600);
-    await store.write('product/detail/b', entry(2), 600);
+    await store.write('product/detail/a', '1', 600);
+    await store.write('product/detail/b', '2', 600);
     await store.deleteExact('product/detail/a');
     expect(await store.read('product/detail/a')).toBeUndefined();
     expect(await store.read('product/detail/b')).toBeDefined();
@@ -44,11 +42,11 @@ describe('MemoryStore', () => {
 
   it('deletePrefix removes the whole subtree but not siblings', async () => {
     const store = new MemoryStore();
-    await store.write('product/detail', entry(0), 600);
-    await store.write('product/detail/a', entry(1), 600);
-    await store.write('product/detail/b', entry(2), 600);
-    await store.write('product/detail-other', entry(3), 600); // NOT under the subtree
-    await store.write('product/list/a', entry(4), 600);
+    await store.write('product/detail', '0', 600);
+    await store.write('product/detail/a', '1', 600);
+    await store.write('product/detail/b', '2', 600);
+    await store.write('product/detail-other', '3', 600); // NOT under the subtree
+    await store.write('product/list/a', '4', 600);
     await store.deletePrefix('product/detail');
     expect(await store.read('product/detail')).toBeUndefined();
     expect(await store.read('product/detail/a')).toBeUndefined();

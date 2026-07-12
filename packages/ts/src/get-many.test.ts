@@ -68,7 +68,7 @@ describe('Cache.getMany (FRSH-049)', () => {
 
   it('uses the driver MGET in a single round-trip on Redis', async () => {
     const redis = new FakeRedis();
-    const driver = new RedisDriver<string>(redis);
+    const driver = new RedisDriver(redis);
     const mgetSpy = vi.spyOn(redis, 'mget');
     const cache = new Cache<string>({
       loader: (k) => `v:${k.idString()}`,

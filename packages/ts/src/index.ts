@@ -44,8 +44,8 @@ export { MemoryStore } from './store/memory-store.js';
 export { LruStore } from './store/lru-store.js';
 export { KeyvStore } from './store/keyv-store.js';
 export type { KeyvLike } from './store/keyv-store.js';
-export { withCodec, gzipJsonCodec } from './codec.js';
-export type { Codec } from './codec.js';
+export { v8Codec, gzipJsonCodec } from './codec.js';
+export type { Codec, V8CodecOptions } from './codec.js';
 
 // Lock strategies (single-flight): in-memory default + Redis
 export { InProcessLock } from './lock/in-process-lock.js';

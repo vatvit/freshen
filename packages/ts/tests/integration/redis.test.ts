@@ -8,7 +8,7 @@ import {
   nodeRedisAdapter,
   SyncMode,
 } from '../../src/index.js';
-import type { RedisLike, Jitter, Entry } from '../../src/index.js';
+import type { RedisLike, Jitter } from '../../src/index.js';
 
 /**
  * The same suite runs against a live Redis through BOTH client adapters — proving
@@ -46,9 +46,9 @@ const backends: Backend[] = [
   },
 ];
 
-function entry(value: unknown, createdAt = 1000, hardExpiresAt = 1600): Entry {
-  return { value, createdAt, hardExpiresAt };
-}
+// The driver is byte-agnostic (FRSH-060): it stores the opaque packed string verbatim.
+// The low-level driver tests use plain string payloads; the full-SWR tests go through a
+// Cache, which packs/unpacks via its codec.
 
 describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
   let redis: RedisLike;
@@ -66,14 +66,14 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
   });
 
   // Isolate every test in its own namespace so a live server needs no flush.
-  const driverFor = <T>(): RedisDriver<T> =>
-    new RedisDriver<T>(redis, { namespace: `frshit:${backend.name}:${ns++}` });
+  const driverFor = (): RedisDriver =>
+    new RedisDriver(redis, { namespace: `frshit:${backend.name}:${ns++}` });
   const lockFor = (): RedisLock => new RedisLock(redis, { namespace: `frshit-lock:${backend.name}:${ns}` });
 
-  it('round-trips an entry', async () => {
+  it('round-trips the packed string verbatim', async () => {
     const d = driverFor();
-    await d.write('product/detail/a', entry({ n: 1 }), 60);
-    expect(await d.read('product/detail/a')).toEqual(entry({ n: 1 }));
+    await d.write('product/detail/a', 'packed-payload', 60);
+    expect(await d.read('product/detail/a')).toBe('packed-payload');
   });
 
   it('RedisLock: SET NX gives exactly one leader, with a fenced (token) unlock', async () => {
@@ -89,10 +89,10 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
 
   it('exact delete leaves the subtree; prefix delete drops it', async () => {
     const d = driverFor();
-    await d.write('product/detail', entry(0), 60);
-    await d.write('product/detail/a', entry(1), 60);
-    await d.write('product/detail/a/deep', entry(2), 60);
-    await d.write('product/detail-other', entry(3), 60);
+    await d.write('product/detail', '0', 60);
+    await d.write('product/detail/a', '1', 60);
+    await d.write('product/detail/a/deep', '2', 60);
+    await d.write('product/detail-other', '3', 60);
 
     await d.deleteExact('product/detail');
     expect(await d.read('product/detail')).toBeUndefined();
@@ -106,14 +106,14 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
 
   it('MGET batch read preserves order and marks misses', async () => {
     const d = driverFor();
-    await d.write('a', entry('A'), 60);
-    await d.write('c', entry('C'), 60);
+    await d.write('a', 'A', 60);
+    await d.write('c', 'C', 60);
     const out = await d.readMany(['a', 'b', 'c']);
-    expect(out.map((e) => e?.value)).toEqual(['A', undefined, 'C']);
+    expect(out).toEqual(['A', undefined, 'C']);
   });
 
   it('full SWR cycle: leader fills, follower hits fresh, invalidateExact clears', async () => {
-    const d = driverFor<string>();
+    const d = driverFor();
     const clock = { now: () => 1000 };
     const loader = vi.fn(() => 'v');
     const cache = new Cache<string>({
@@ -138,7 +138,7 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
   });
 
   it('concurrent cold reads recompute once', async () => {
-    const d = driverFor<string>();
+    const d = driverFor();
     const clock = { now: () => 1000 };
     const loader = vi.fn(async () => {
       await new Promise((r) => setTimeout(r, 50));

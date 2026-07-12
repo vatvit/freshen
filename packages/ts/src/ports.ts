@@ -1,5 +1,4 @@
 import type { Key, KeyPrefixLike } from './key.js';
-import type { Entry } from './item.js';
 
 /**
  * The pluggable collaborators of the cache — every one an interface with a bundled
@@ -38,14 +37,18 @@ export interface Metrics {
 
 /**
  * The backend store port (PARITY §12). The library ships a default in-memory store
- * and consumes any implementation (a keyv store, a Redis driver, …). Values are the
- * Freshen {@link Entry} envelope; the store persists it under a physical TTL.
+ * and consumes any implementation (a keyv store, a Redis driver, …).
+ *
+ * The store is **byte-agnostic** (FRSH-060): it persists an opaque **packed string**
+ * under a physical TTL and never interprets the value's type. The `Cache` owns
+ * (de)serialisation via a {@link Codec}, so every backend holds the same encoded bytes
+ * (dev == prod — no per-store fidelity skew).
  */
-export interface Store<T = unknown> {
-  /** Read the envelope for a key, or `undefined` if absent/expired. */
-  read(key: string): Promise<Entry<T> | undefined>;
-  /** Persist an envelope under a physical TTL (seconds). */
-  write(key: string, entry: Entry<T>, ttlSec: number): Promise<void>;
+export interface Store {
+  /** Read the packed string for a key, or `undefined` if absent/expired. */
+  read(key: string): Promise<string | undefined>;
+  /** Persist a packed string under a physical TTL (seconds). */
+  write(key: string, packed: string, ttlSec: number): Promise<void>;
   /** Delete exactly one key (leaving its subtree intact) — PARITY §8. */
   deleteExact(key: string): Promise<void>;
   /** Delete the whole subtree under a prefix string — PARITY §8. */
@@ -57,16 +60,16 @@ export interface Store<T = unknown> {
  * does — FRSH-044). The cache feature-detects these, exactly as the PHP reference
  * checks `instanceof Driver\Redis`, and falls back to best-effort otherwise.
  */
-export interface Driver<T = unknown> extends Store<T> {
+export interface Driver extends Store {
   /** Atomic exact-delete of many keys in one round-trip (Redis `DEL k1 k2 …`). */
   deleteExactMany(keys: string[]): Promise<void>;
-  /** Batch read many keys in one round-trip (Redis `MGET`). Order-preserving. */
-  readMany(keys: string[]): Promise<Array<Entry<T> | undefined>>;
+  /** Batch read many packed strings in one round-trip (Redis `MGET`). Order-preserving. */
+  readMany(keys: string[]): Promise<Array<string | undefined>>;
 }
 
 /** Narrowing guard for the optional {@link Driver} capabilities. */
-export function isDriver<T>(store: Store<T>): store is Driver<T> {
-  const d = store as Partial<Driver<T>>;
+export function isDriver(store: Store): store is Driver {
+  const d = store as Partial<Driver>;
   return typeof d.deleteExactMany === 'function' && typeof d.readMany === 'function';
 }
 

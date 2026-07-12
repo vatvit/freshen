@@ -45,8 +45,9 @@ behaviour matches the language-neutral contract in
   circuit-breaker, and **negative caching** (briefly cache a not-found).
 - **Batch** — `getMany` (one `MGET`) and a DataLoader-style **coalescing loader** (`WHERE id
   IN (…)`), with per-key single-flight preserved.
-- **Pluggable serialization + compression** — a value codec seam (built-in gzip), or delegate
-  to keyv's own compress/serialize hooks.
+- **Byte-agnostic storage + pluggable serialization/compression** — stores hold opaque
+  packed bytes; the `Cache` codec preserves rich types (`Date`/`Map`/`bigint`) and gzips
+  large payloads, identically on every backend (dev == prod). Swappable per cache.
 
 ## Why not just use cachified / cacheable / cache-manager / keyv?
 
@@ -359,18 +360,28 @@ const cache2 = new Cache({
 
 ### 9. Compression & custom serialization
 
-Wrap the store with a value codec (built-in gzip), or delegate to keyv's own compress hooks:
+Storage is **byte-agnostic**: every store (in-memory, Redis, keyv) holds the same opaque
+packed bytes, and the `Cache` owns (de)serialisation + compression through a pluggable
+`Codec` — so a value round-trips **identically on every backend** (dev == prod; no
+`Date`→string / `Map`→`{}` / `bigint`-throws skew). The default `v8Codec` preserves rich
+types (`Date`/`Map`/`Set`/`bigint`/typed arrays) and gzip-compresses above a size threshold,
+zero-dependency. Swap it per cache:
 
 ```ts
-import { withCodec, gzipJsonCodec, MemoryStore } from '@vatvit/freshen';
+import { Cache, v8Codec, gzipJsonCodec } from '@vatvit/freshen';
 
-const store = withCodec(new MemoryStore(), gzipJsonCodec<Product[]>());
-const cache = new Cache({ loader, hardTtlSec: 3600, store });
+// Default — fidelity-preserving v8 + gzip-over-threshold (nothing to configure):
+const a = new Cache({ loader, hardTtlSec: 3600 });
+
+// Tune the compression threshold / bomb cap, or pick a JSON-on-the-wire codec:
+const b = new Cache({ loader, hardTtlSec: 3600, codec: v8Codec({ gzipThresholdBytes: 256 }) });
+const c = new Cache({ loader, hardTtlSec: 3600, codec: gzipJsonCodec() });
 ```
 
-Compression applies to the value only — the envelope timestamps stay readable — and a decode
-failure is treated as a miss (fail-open). On a keyv store you can instead use
-`@keyv/compress-brotli` etc. and skip this seam.
+A decode failure (or a decompression bomb past `maxDecodedBytes`) is treated as a miss
+(fail-open), so the loader recomputes rather than crashing the read path. On a keyv store you
+can also use `@keyv/compress-brotli` etc. underneath — the codec still gives one uniform
+fidelity contract across backends.
 
 ### Escape hatch & limitations
 

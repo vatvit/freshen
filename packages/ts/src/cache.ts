@@ -1,11 +1,13 @@
 import type { Clock } from './clock.js';
 import { systemClock } from './clock.js';
+import type { Codec } from './codec.js';
+import { v8Codec } from './codec.js';
 import { AsyncDispatcherError, InvalidArgumentError, NotFoundError } from './errors.js';
 import { InvalidateEvent, InvalidateExactEvent, RefreshEvent } from './events.js';
 import type { HookListener } from './hooks.js';
 import { HookBus, metricsSubscriber } from './hooks.js';
 import type { Entry } from './item.js';
-import { softExpiresAt } from './item.js';
+import { packEntry, softExpiresAt, unpackEntry } from './item.js';
 import type { Key } from './key.js';
 import { DefaultJitter } from './jitter.js';
 import type { LoaderFn } from './loader.js';
@@ -38,7 +40,13 @@ export interface CacheOptions<T = unknown> {
   /** Seconds before hard expiry the precompute window opens. MUST be in `[0, hardTtlSec]`. Default 0. */
   precomputeSec?: number;
   /** Backend store. Default: a process-local {@link MemoryStore}. */
-  store?: Store<T>;
+  store?: Store;
+  /**
+   * Value (de)serialisation + compression strategy (FRSH-060). The store is
+   * byte-agnostic; this codec turns values into the packed bytes every backend holds.
+   * Default: {@link v8Codec} (fidelity-preserving `node:v8` + gzip above a threshold).
+   */
+  codec?: Codec;
   /** TTL jitter. Default: {@link DefaultJitter} at 15%. */
   jitter?: Jitter;
   /** Single-flight lock. Default: {@link InProcessLock}. */
@@ -116,7 +124,8 @@ export class Cache<T = unknown> {
   private readonly loader: Loader<T>;
   private readonly hardTtlSec: number;
   private readonly precomputeSec: number;
-  private readonly store: Store<T>;
+  private readonly store: Store;
+  private readonly codec: Codec;
   private readonly jitter: Jitter;
   private readonly lock: SingleFlightLock;
   private readonly dispatcher?: EventDispatcher;
@@ -137,6 +146,7 @@ export class Cache<T = unknown> {
       hardTtlSec,
       precomputeSec = 0,
       store,
+      codec,
       jitter,
       lock,
       dispatcher,
@@ -166,7 +176,8 @@ export class Cache<T = unknown> {
     this.loader = toLoader(loader);
     this.hardTtlSec = hardTtlSec;
     this.precomputeSec = precomputeSec;
-    this.store = store ?? new MemoryStore<T>(clock);
+    this.store = store ?? new MemoryStore(clock);
+    this.codec = codec ?? v8Codec();
     this.jitter = jitter ?? new DefaultJitter();
     this.lock = lock ?? new InProcessLock();
     this.dispatcher = dispatcher;
@@ -202,7 +213,7 @@ export class Cache<T = unknown> {
    */
   async get(key: Key): Promise<ValueResult<T>> {
     const keyStr = key.toString();
-    const entry = await this.store.read(keyStr);
+    const entry = unpackEntry<T>(await this.store.read(keyStr), this.codec);
     const now = this.clock.now();
 
     if (entry !== undefined && entry.negative !== true) {
@@ -278,13 +289,13 @@ export class Cache<T = unknown> {
       return [];
     }
     const keyStrs = keys.map((key) => key.toString());
-    const entries = isDriver(this.store)
+    const packed = isDriver(this.store)
       ? await this.store.readMany(keyStrs)
       : await Promise.all(keyStrs.map((k) => this.store.read(k)));
 
     return Promise.all(
       keys.map((key, i) => {
-        const entry = entries[i];
+        const entry = unpackEntry<T>(packed[i], this.codec);
         const now = this.clock.now();
         if (entry !== undefined && entry.negative !== true) {
           const soft = softExpiresAt(entry, this.precomputeSec);
@@ -369,7 +380,7 @@ export class Cache<T = unknown> {
    * Escape hatch: the underlying store (PARITY §12; not a parity requirement). Lets
    * a host reach the raw backend. Whole-store flush is intentionally not offered.
    */
-  asStore(): Store<T> {
+  asStore(): Store {
     return this.store;
   }
 
@@ -444,7 +455,7 @@ export class Cache<T = unknown> {
     if (!this.staleIfError) {
       return undefined;
     }
-    const last = await this.store.read(key.toString());
+    const last = unpackEntry<T>(await this.store.read(key.toString()), this.codec);
     if (last === undefined || last.negative === true) {
       return undefined;
     }
@@ -455,7 +466,7 @@ export class Cache<T = unknown> {
     // Persist the retry-after so followers serve stale without re-hitting the loader.
     const nextRetryAt = Math.min(now + this.staleIfErrorRetrySec, graceEnd);
     const remaining = graceEnd - now;
-    await this.store.write(key.toString(), { ...last, nextRetryAt }, remaining);
+    await this.store.write(key.toString(), packEntry({ ...last, nextRetryAt }, this.codec), remaining);
     return ValueResult.stale(last.value, last.createdAt, softExpiresAt(last, this.precomputeSec));
   }
 
@@ -476,7 +487,7 @@ export class Cache<T = unknown> {
       hardExpiresAt: now + this.negativeTtlSec,
       negative: true,
     };
-    await this.store.write(key.toString(), entry, this.negativeTtlSec);
+    await this.store.write(key.toString(), packEntry(entry, this.codec), this.negativeTtlSec);
   }
 
   /** Persist a value under a jittered hard TTL (+ grace retention) (PARITY §9). */
@@ -487,7 +498,7 @@ export class Cache<T = unknown> {
       createdAt: now,
       hardExpiresAt: now + jittered,
     };
-    await this.store.write(key.toString(), entry, jittered + this.graceSec);
+    await this.store.write(key.toString(), packEntry(entry, this.codec), jittered + this.graceSec);
   }
 
   /** Post-write soft boundary from the *nominal* hard TTL (PARITY §7.1). */
@@ -500,7 +511,7 @@ export class Cache<T = unknown> {
     const deadline = Date.now() + this.followerWaitMs;
     while (Date.now() < deadline) {
       await sleep(this.followerPollMs);
-      const entry = await this.store.read(keyStr);
+      const entry = unpackEntry<T>(await this.store.read(keyStr), this.codec);
       if (entry !== undefined && entry.negative !== true) {
         // Accept any physically-usable value the leader just wrote. Gating on soft
         // expiry would reject a fresh entry when precomputeSec ≈ hardTtlSec (soft ≈

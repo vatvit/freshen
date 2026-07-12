@@ -109,7 +109,7 @@ describe('stale-if-error (FRSH-048)', () => {
     outcome: { throws: boolean; value: string };
   }> {
     const clock = fakeClock(1000);
-    const store = new MemoryStore<string>(clock);
+    const store = new MemoryStore(clock);
     const metrics = recordingMetrics();
     const outcome = { throws: false, value: 'v1' };
     const loader = vi.fn(() => {
@@ -204,7 +204,7 @@ describe('stale-if-error (FRSH-048)', () => {
 describe('precedence: not-found overrides stale-if-error (FRSH-048 vs FRSH-051)', () => {
   it('a definitive NotFound returns a negative miss even with a retained positive', async () => {
     const clock = fakeClock(1000);
-    const store = new MemoryStore<string>(clock);
+    const store = new MemoryStore(clock);
     const outcome = { notFound: false };
     const loader = vi.fn(() => {
       if (outcome.notFound) {
