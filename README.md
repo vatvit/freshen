@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vatvit/freshen/main/docs/assets/freshen-cache-lifecycle.png" alt="Freshen — stale-while-revalidate cache with cache-stampede prevention" width="880">
+</p>
+
 # Freshen
 
 Cache library implementing **stale-while-revalidate** with

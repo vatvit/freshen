@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vatvit/freshen/main/docs/assets/freshen-cache-lifecycle-php.png" alt="Freshen — stale-while-revalidate caching for Laravel" width="880">
+</p>
+
 # Freshen — Laravel bridge
 
 > **Drop-in stale-while-revalidate caching for Laravel.** `composer require`, publish one

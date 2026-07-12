@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vatvit/freshen/main/docs/assets/freshen-cache-lifecycle-php.png" alt="Freshen — stale-while-revalidate caching for Symfony" width="880">
+</p>
+
 # Freshen — Symfony bundle
 
 > **Drop-in stale-while-revalidate caching for Symfony.** `composer require` + a little

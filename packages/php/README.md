@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vatvit/freshen/main/docs/assets/freshen-cache-lifecycle-php.png" alt="Freshen (PHP) — stale-while-revalidate cache with cache-stampede prevention" width="880">
+</p>
+
 # Freshen (PHP)
 
 > **Finally, full control over your caching — in one library.**
