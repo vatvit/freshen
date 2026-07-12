@@ -26,6 +26,11 @@ the `Key` model reproduces the frozen cross-language parity oracle byte-for-byte
   `RedisLock` for cluster-wide `SET NX` + Lua fenced unlock). The client-agnostic Redis
   pieces sit over a tiny `RedisLike` port with `ioredisAdapter` / `nodeRedisAdapter` (no
   hard client dependency); `RedisDriver` provides exact/prefix-subtree/batch delete + `MGET`.
+  Hierarchical invalidation is **generation-versioned** (an atomic `INCR` of a per-prefix
+  counter, O(1), no `SCAN`/`KEYS`) — the physical key embeds each ancestor segment's
+  generation, so a bump makes the whole subtree unreachable at once and a concurrent write
+  is still invalidated (orphans expire on TTL). Trade: a read resolves ancestor generations
+  first (~2 round-trips), matching the PHP reference's per-segment path index.
 - **`createFreshen` factory** — configure a shared store/lock/metrics once and build a
   `Cache` per dataset (keys namespaced by `domain`/`facet`).
 - **Async model** — per-op events (`InvalidateEvent` / `InvalidateExactEvent` /

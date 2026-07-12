@@ -65,6 +65,38 @@ describe('RedisDriver', () => {
     expect(await driver.read('product/detail-other')).toBeDefined();
     expect(await driver.read('product/list/a')).toBeDefined();
   });
+
+  it('deletePrefix is O(1): one INCR, never SCAN/KEYS (FRSH-056)', async () => {
+    const redis = new FakeRedis();
+    const incrSpy = vi.spyOn(redis, 'incr');
+    const scanSpy = vi.spyOn(redis, 'scan');
+    const driver = new RedisDriver(redis);
+    await driver.write('product/detail/a', '1', 600);
+    await driver.write('product/detail/b', '2', 600);
+    await driver.deletePrefix('product/detail');
+    expect(incrSpy).toHaveBeenCalledOnce(); // single atomic generation bump
+    expect(scanSpy).not.toHaveBeenCalled(); // never scans the keyspace
+    expect(await driver.read('product/detail/a')).toBeUndefined();
+    expect(await driver.read('product/detail/b')).toBeUndefined();
+  });
+
+  it('invalidate wins over an existing write; a write after it is visible (the race SCAN lost)', async () => {
+    const driver = new RedisDriver(new FakeRedis());
+    await driver.write('product/detail/a', 'stale', 600); // written under the old generation
+    await driver.deletePrefix('product/detail'); // generation bumped
+    expect(await driver.read('product/detail/a')).toBeUndefined(); // old write unreachable
+    await driver.write('product/detail/a', 'fresh', 600); // lands under the new generation
+    expect(await driver.read('product/detail/a')).toBe('fresh');
+  });
+
+  it('invalidating a deeper prefix leaves a sibling subtree untouched', async () => {
+    const driver = new RedisDriver(new FakeRedis());
+    await driver.write('doc/body/2/en/x', 'a', 600); // schema 2, locale en
+    await driver.write('doc/body/2/fr/x', 'b', 600); // schema 2, locale fr
+    await driver.deletePrefix('doc/body/2/en'); // bump only the en-locale node
+    expect(await driver.read('doc/body/2/en/x')).toBeUndefined();
+    expect(await driver.read('doc/body/2/fr/x')).toBe('b');
+  });
 });
 
 describe('Cache over RedisDriver + RedisLock — single-flight', () => {

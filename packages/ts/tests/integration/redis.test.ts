@@ -104,6 +104,26 @@ describe.each(backends)('RedisDriver over live Redis via $name', (backend) => {
     expect(await d.read('product/detail-other')).toBeDefined();
   });
 
+  it('generation-versioned invalidation (FRSH-056): O(1) subtree drop, re-write visible, deep sibling survives', async () => {
+    const d = driverFor();
+    await d.write('doc/body/2/en/x', 'en-old', 60);
+    await d.write('doc/body/2/fr/x', 'fr', 60);
+
+    // Bump only the en-locale node: its subtree is unreachable, the fr sibling is not.
+    await d.deletePrefix('doc/body/2/en');
+    expect(await d.read('doc/body/2/en/x')).toBeUndefined();
+    expect(await d.read('doc/body/2/fr/x')).toBe('fr');
+
+    // A write AFTER the invalidate lands under the new generation and is visible again.
+    await d.write('doc/body/2/en/x', 'en-new', 60);
+    expect(await d.read('doc/body/2/en/x')).toBe('en-new');
+
+    // A write concurrent-with / before an invalidate is superseded (the race SCAN lost).
+    await d.write('doc/body/2/en/y', 'stale', 60);
+    await d.deletePrefix('doc/body/2/en');
+    expect(await d.read('doc/body/2/en/y')).toBeUndefined();
+  });
+
   it('MGET batch read preserves order and marks misses', async () => {
     const d = driverFor();
     await d.write('a', 'A', 60);

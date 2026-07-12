@@ -66,7 +66,7 @@ describe('Cache.getMany (FRSH-049)', () => {
     expect(loader).toHaveBeenCalledTimes(2); // only the two misses
   });
 
-  it('uses the driver MGET in a single round-trip on Redis', async () => {
+  it('batches the whole read into a constant number of MGET round-trips on Redis', async () => {
     const redis = new FakeRedis();
     const driver = new RedisDriver(redis);
     const mgetSpy = vi.spyOn(redis, 'mget');
@@ -81,9 +81,13 @@ describe('Cache.getMany (FRSH-049)', () => {
     });
     await cache.put(K(1), 'A');
     await cache.put(K(2), 'B');
+    await cache.put(K(3), 'C');
     mgetSpy.mockClear();
-    const results = await cache.getMany([K(1), K(2)]);
-    expect(results.map((r) => r.value())).toEqual(['A', 'B']);
-    expect(mgetSpy).toHaveBeenCalledOnce(); // one MGET for the whole batch
+    const results = await cache.getMany([K(1), K(2), K(3)]);
+    expect(results.map((r) => r.value())).toEqual(['A', 'B', 'C']);
+    // Generation-versioned driver (FRSH-056): one MGET resolves all ancestor generations
+    // for the batch, one MGET fetches the values — ~2 round-trips regardless of batch size
+    // (NOT 2N). The single value round-trip (FRSH-049) is preserved.
+    expect(mgetSpy).toHaveBeenCalledTimes(2);
   });
 });

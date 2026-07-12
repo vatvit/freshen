@@ -21,6 +21,13 @@ export interface RedisLike {
   /** DEL — number of keys removed. A no-op (0) for an empty list. */
   del(keys: string[]): Promise<number>;
 
+  /**
+   * INCR — atomically increment the integer at `key` (creating it at 0 first) and
+   * return the new value. Powers generation-versioned hierarchical invalidation
+   * (FRSH-056): one `INCR` per prefix bump makes the whole subtree unreachable, O(1).
+   */
+  incr(key: string): Promise<number>;
+
   /** MGET — one entry per input key, order-preserving; `null` where absent. */
   mget(keys: string[]): Promise<Array<string | null>>;
 
