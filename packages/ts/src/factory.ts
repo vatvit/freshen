@@ -3,6 +3,7 @@ import type { CacheOptions } from './cache.js';
 import type { Clock } from './clock.js';
 import type { HookListener } from './hooks.js';
 import { InProcessLock } from './lock/in-process-lock.js';
+import type { Codec } from './codec.js';
 import type { EventDispatcher, Jitter, Metrics, SingleFlightLock, Store } from './ports.js';
 import { MemoryStore } from './store/memory-store.js';
 
@@ -12,9 +13,11 @@ import { MemoryStore } from './store/memory-store.js';
  */
 export interface FreshenOptions {
   /** Shared backend store. Default: a single {@link MemoryStore} shared by all caches. */
-  store?: Store<unknown>;
+  store?: Store;
   /** Shared single-flight lock. Default: a single {@link InProcessLock}. */
   lock?: SingleFlightLock;
+  /** Shared value codec (FRSH-060). Default per cache: {@link v8Codec}. */
+  codec?: Codec;
   /** Shared event dispatcher for ASYNC ops. */
   dispatcher?: EventDispatcher;
   /** Shared metrics sink (wired as a hook subscriber on every cache). */
@@ -44,7 +47,7 @@ export interface FreshenOptions {
  * it's a convenience over it.
  */
 export class Freshen {
-  private readonly sharedStore: Store<unknown>;
+  private readonly sharedStore: Store;
   private readonly sharedLock: SingleFlightLock;
 
   constructor(private readonly shared: FreshenOptions = {}) {
@@ -56,7 +59,8 @@ export class Freshen {
   cache<T = unknown>(options: CacheOptions<T>): Cache<T> {
     return new Cache<T>({
       ...options,
-      store: (options.store ?? this.sharedStore) as Store<T>,
+      store: options.store ?? this.sharedStore,
+      codec: options.codec ?? this.shared.codec,
       lock: options.lock ?? this.sharedLock,
       jitter: options.jitter ?? this.shared.jitter,
       dispatcher: options.dispatcher ?? this.shared.dispatcher,
@@ -67,7 +71,7 @@ export class Freshen {
   }
 
   /** The shared store (escape hatch). */
-  store(): Store<unknown> {
+  store(): Store {
     return this.sharedStore;
   }
 

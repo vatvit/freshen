@@ -1,17 +1,18 @@
 import type { Clock } from '../clock.js';
 import { systemClock } from '../clock.js';
-import type { Entry } from '../item.js';
 import type { Store } from '../ports.js';
 
-interface Slot<T> {
-  entry: Entry<T>;
+interface Slot {
+  /** The opaque packed string (the Cache owns its encoding). */
+  packed: string;
   expiresAt: number; // physical expiry, unix seconds; Infinity = none
 }
 
 /**
  * A bounded in-memory LRU store — the L1 tier for two-level caching (FRSH-047).
  * Bounded is mandatory: at most `max` entries; a write past the bound evicts the
- * least-recently-used key. Physical TTL is evaluated lazily on read against an
+ * least-recently-used key. Byte-agnostic (FRSH-060) — holds the same opaque packed
+ * string as every other backend. Physical TTL is evaluated lazily on read against an
  * injectable {@link Clock} (share the cache clock in tests). Recency is refreshed on
  * both read and write.
  *
@@ -19,8 +20,8 @@ interface Slot<T> {
  * {@link MemoryStore}'s no-deps stance); swap in `lru-cache`/`keyv` behind the same
  * {@link Store} port if you prefer.
  */
-export class LruStore<T = unknown> implements Store<T> {
-  private readonly map = new Map<string, Slot<T>>();
+export class LruStore implements Store {
+  private readonly map = new Map<string, Slot>();
   private readonly max: number;
 
   constructor(max: number, private readonly clock: Clock = systemClock) {
@@ -30,7 +31,7 @@ export class LruStore<T = unknown> implements Store<T> {
     this.max = max;
   }
 
-  read(key: string): Promise<Entry<T> | undefined> {
+  read(key: string): Promise<string | undefined> {
     const slot = this.map.get(key);
     if (slot === undefined) {
       return Promise.resolve(undefined);
@@ -42,12 +43,12 @@ export class LruStore<T = unknown> implements Store<T> {
     // Refresh recency: re-insert at the tail (most-recently-used).
     this.map.delete(key);
     this.map.set(key, slot);
-    return Promise.resolve(slot.entry);
+    return Promise.resolve(slot.packed);
   }
 
-  write(key: string, entry: Entry<T>, ttlSec: number): Promise<void> {
+  write(key: string, packed: string, ttlSec: number): Promise<void> {
     this.map.delete(key); // ensure re-insert at the tail
-    this.map.set(key, { entry, expiresAt: ttlSec > 0 ? this.clock.now() + ttlSec : Infinity });
+    this.map.set(key, { packed, expiresAt: ttlSec > 0 ? this.clock.now() + ttlSec : Infinity });
     if (this.map.size > this.max) {
       // Evict the least-recently-used (the first/oldest key in insertion order).
       const oldest = this.map.keys().next().value;

@@ -1,115 +1,83 @@
+import { deserialize, serialize } from 'node:v8';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import type { Entry } from './item.js';
-import type { Driver, Store } from './ports.js';
-import { isDriver } from './ports.js';
 
 /**
- * Pluggable (de)serialization / compression of the stored **value** (FRSH-052).
- * Applied only to the value payload — the {@link Entry} envelope timestamps stay
- * intact and readable, which the read state machine needs. Serialization is a
- * host binding (PARITY §13 area): observable value-in/value-out is unchanged; the
- * codec is non-normative.
+ * Pluggable value (de)serialisation + optional compression (FRSH-060). The storage
+ * layer is **byte-agnostic** — it packs and unpacks opaque strings and never
+ * interprets the value's type. All fidelity + size concerns live here, in front of
+ * the store, so every backend (in-memory, Redis, keyv) persists the **same encoded
+ * bytes** — dev == prod, no per-store serialization skew.
  *
- * Alternative (DRY) path: if you use a keyv store, you can instead delegate to
- * keyv's own `@keyv/compress-*` / serialize hooks and skip this seam entirely — see
- * the README. This seam exists for the non-keyv paths (in-memory, the Redis driver).
+ * `encode` turns a value into its stored string form; `decode` reverses it and MAY
+ * throw — a decode failure is treated by the cache as a miss (fail-open spirit), so
+ * a corrupt/undecodable payload never takes down the read path. The encoded bytes are
+ * a host binding (PARITY §13 area) — non-normative; observable value-in == value-out
+ * is what matters. Swap in any strategy (superjson, msgpack, JSON) without forking.
  */
-export interface Codec<T = unknown> {
-  /** Transform a value into its stored form (e.g. compressed base64). */
-  encode(value: T): unknown;
+export interface Codec {
+  /** Transform a value into its stored string form. */
+  encode(value: unknown): string;
   /** Reverse {@link encode}. MAY throw — a decode failure is treated as a miss. */
-  decode(stored: unknown): T;
+  decode(packed: string): unknown;
 }
 
+/** Options for {@link v8Codec}. */
+export interface V8CodecOptions {
+  /**
+   * Payloads whose serialized size (bytes) is ≥ this are gzip-compressed; smaller
+   * ones are stored raw to avoid compression overhead on tiny values. Default 1024.
+   */
+  gzipThresholdBytes?: number;
+  /**
+   * Hard cap on the decompressed size (bytes) of a gzipped payload — bounds a
+   * decompression bomb from untrusted stored bytes. Default 64 MiB.
+   */
+  maxDecodedBytes?: number;
+}
+
+// One-char framing marker so decode knows how the body was produced.
+const RAW = 'r';
+const GZIP = 'g';
+
 /**
- * Built-in gzip + JSON codec for large payloads. `T` must be JSON-serialisable.
- * Stores a base64 string of the gzipped JSON.
+ * The default codec: Node's structured-clone serialization (`node:v8`) with gzip above
+ * a size threshold. Zero-dependency and **fidelity-preserving** — `Date`, `Map`, `Set`,
+ * `bigint`, typed arrays and nested structures round-trip exactly (fixing the pre-FRSH-060
+ * skew where `MemoryStore` kept live refs while Redis/keyv JSON-encoded, corrupting
+ * `Date`→string / `Map`→`{}` and throwing on `bigint`). The stored form is a marker char
+ * followed by base64 of the (optionally gzipped) v8 bytes.
  */
-export function gzipJsonCodec<T = unknown>(): Codec<T> {
+export function v8Codec(options: V8CodecOptions = {}): Codec {
+  const threshold = options.gzipThresholdBytes ?? 1024;
+  const maxDecodedBytes = options.maxDecodedBytes ?? 64 * 1024 * 1024;
   return {
-    encode: (value) =>
-      value === undefined ? undefined : gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('base64'),
-    decode: (stored) => {
-      if (stored === undefined || stored === null) {
-        return undefined as unknown as T;
+    encode(value: unknown): string {
+      const raw = serialize(value);
+      if (raw.length >= threshold) {
+        return GZIP + gzipSync(raw).toString('base64');
       }
-      const gzipped = Buffer.from(String(stored), 'base64');
-      return JSON.parse(gunzipSync(gzipped).toString('utf8')) as T;
+      return RAW + raw.toString('base64');
+    },
+    decode(packed: string): unknown {
+      const marker = packed[0];
+      const body = Buffer.from(packed.slice(1), 'base64');
+      const raw = marker === GZIP ? gunzipSync(body, { maxOutputLength: maxDecodedBytes }) : body;
+      return deserialize(raw);
     },
   };
 }
 
-class CodecStore<T> implements Store<T> {
-  constructor(
-    protected readonly inner: Store<unknown>,
-    protected readonly codec: Codec<T>,
-  ) {}
-
-  async read(key: string): Promise<Entry<T> | undefined> {
-    const entry = await this.inner.read(key);
-    return this.decodeEntry(entry);
-  }
-
-  write(key: string, entry: Entry<T>, ttlSec: number): Promise<void> {
-    return this.inner.write(key, this.encodeEntry(entry), ttlSec);
-  }
-
-  deleteExact(key: string): Promise<void> {
-    return this.inner.deleteExact(key);
-  }
-
-  deletePrefix(prefix: string): Promise<void> {
-    return this.inner.deletePrefix(prefix);
-  }
-
-  protected encodeEntry(entry: Entry<T>): Entry<unknown> {
-    // Negative entries carry no meaningful value — leave them untouched.
-    if (entry.negative === true) {
-      return entry as Entry<unknown>;
-    }
-    return { ...entry, value: this.codec.encode(entry.value) };
-  }
-
-  protected decodeEntry(entry: Entry<unknown> | undefined): Entry<T> | undefined {
-    if (entry === undefined) {
-      return undefined;
-    }
-    if (entry.negative === true) {
-      return entry as Entry<T>;
-    }
-    try {
-      return { ...entry, value: this.codec.decode(entry.value) };
-    } catch {
-      // A corrupt/undecodable payload must not take down the read path — treat it as
-      // a miss (fail-open spirit) so the loader recomputes.
-      return undefined;
-    }
-  }
-}
-
-class CodecDriver<T> extends CodecStore<T> implements Driver<T> {
-  constructor(
-    private readonly innerDriver: Driver<unknown>,
-    codec: Codec<T>,
-  ) {
-    super(innerDriver, codec);
-  }
-
-  deleteExactMany(keys: string[]): Promise<void> {
-    return this.innerDriver.deleteExactMany(keys);
-  }
-
-  async readMany(keys: string[]): Promise<Array<Entry<T> | undefined>> {
-    const entries = await this.innerDriver.readMany(keys);
-    return entries.map((entry) => this.decodeEntry(entry));
-  }
-}
-
 /**
- * Wrap a store so values are transparently (de)serialised through `codec`. Preserves
- * the {@link Driver} batch/atomic capabilities when the wrapped store is a driver, so
- * `getMany`/batch-delete keep working under compression.
+ * Alternative codec for hosts that prefer JSON-compatible, human-inspectable bytes
+ * (at the cost of fidelity — `Date`→string, `Map`/`Set`→`{}`, `bigint` throws). Stores
+ * a base64 string of the gzipped JSON. Prefer {@link v8Codec} (the default) unless you
+ * specifically need JSON on the wire.
  */
-export function withCodec<T>(store: Store<unknown>, codec: Codec<T>): Store<T> {
-  return isDriver(store) ? new CodecDriver<T>(store, codec) : new CodecStore<T>(store, codec);
+export function gzipJsonCodec(): Codec {
+  return {
+    encode: (value: unknown): string =>
+      gzipSync(Buffer.from(JSON.stringify(value), 'utf8')).toString('base64'),
+    decode: (packed: string): unknown =>
+      JSON.parse(gunzipSync(Buffer.from(packed, 'base64')).toString('utf8')),
+  };
 }

@@ -68,7 +68,7 @@ describe('InProcessAsyncDispatcher', () => {
   it('end-to-end: an ASYNC invalidateExact eventually clears the value', async () => {
     // dispatcher first (empty), then the cache wired to it, then bind the handler —
     // resolving the cache<->dispatcher cycle.
-    const store = new MemoryStore<string>();
+    const store = new MemoryStore();
     const dispatcher = new InProcessAsyncDispatcher();
     const cache = new Cache<string>({
       loader: () => 'v',

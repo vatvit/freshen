@@ -40,8 +40,11 @@ the `Key` model reproduces the frozen cross-language parity oracle byte-for-byte
   sharing one loader-outcome decision point.
 - **Batch** — `getMany` (single `MGET`) and a DataLoader-style `CoalescingLoader`
   (`BatchLoader.resolveMany`) with `loopBatchLoader` default.
-- **Serialization/compression** — a value `Codec` seam (`withCodec`) with a built-in
-  `gzipJsonCodec`; decode failure is treated as a miss (fail-open).
+- **Byte-agnostic storage + serialization/compression** — stores hold opaque packed bytes;
+  the `Cache` owns encode/decode via a pluggable `Codec` (default `v8Codec`: fidelity-
+  preserving `node:v8` + gzip over a threshold, bomb-bounded; `gzipJsonCodec` alternative).
+  Every backend round-trips a value identically (dev == prod — no `Date`/`Map`/`bigint`
+  skew); a decode failure is treated as a miss (fail-open).
 
 ### Packaging
 - Dual ESM + CJS + `.d.ts` build (tsup), `target: node16`, Node 16 → 22 dist smoke.

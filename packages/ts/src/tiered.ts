@@ -55,7 +55,7 @@ export class TieredCache<T = unknown> {
     const l2 = new Cache<T>({ ...options.l2, loader: options.loader });
     const clock = options.l1.clock ?? options.l2.clock;
     const l1 = new Cache<T>({
-      store: new LruStore<T>(options.l1.max, clock),
+      store: new LruStore(options.l1.max, clock),
       // L1's loader is L2: a cascade read. A MISS from L2 becomes a not-found so L1
       // does not cache a phantom value.
       loader: (key: Key) =>

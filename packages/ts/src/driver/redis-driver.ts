@@ -1,4 +1,3 @@
-import type { Entry } from '../item.js';
 import type { Driver } from '../ports.js';
 import type { RedisLike } from './redis-like.js';
 
@@ -23,11 +22,11 @@ export interface RedisDriverOptions {
  * separate {@link RedisLock} strategy (`src/lock/`); wire them from the same client:
  * `new Cache({ store: new RedisDriver(redis), lock: new RedisLock(redis) })`.
  *
- * Values are stored as JSON of the {@link Entry} envelope, so `T` must be
- * JSON-serialisable. A corrupt/undecodable value is treated as a miss (fail-open
- * spirit) rather than throwing into the read path.
+ * Byte-agnostic (FRSH-060): the driver stores the opaque **packed string** the Cache
+ * hands it, verbatim — no JSON encode/decode here. All (de)serialisation + compression
+ * is the Cache's {@link Codec}, so Redis holds the same bytes the in-memory store does.
  */
-export class RedisDriver<T = unknown> implements Driver<T> {
+export class RedisDriver implements Driver {
   private readonly ns: string;
   private readonly scanCount: number;
 
@@ -39,12 +38,12 @@ export class RedisDriver<T = unknown> implements Driver<T> {
     this.scanCount = options.scanCount ?? 512;
   }
 
-  async read(key: string): Promise<Entry<T> | undefined> {
-    return this.decode(await this.redis.get(this.k(key)));
+  async read(key: string): Promise<string | undefined> {
+    return (await this.redis.get(this.k(key))) ?? undefined;
   }
 
-  async write(key: string, entry: Entry<T>, ttlSec: number): Promise<void> {
-    await this.redis.set(this.k(key), JSON.stringify(entry), { pxMs: Math.max(1, ttlSec) * 1000 });
+  async write(key: string, packed: string, ttlSec: number): Promise<void> {
+    await this.redis.set(this.k(key), packed, { pxMs: Math.max(1, ttlSec) * 1000 });
   }
 
   async deleteExact(key: string): Promise<void> {
@@ -58,12 +57,12 @@ export class RedisDriver<T = unknown> implements Driver<T> {
     await this.redis.del(keys.map((key) => this.k(key)));
   }
 
-  async readMany(keys: string[]): Promise<Array<Entry<T> | undefined>> {
+  async readMany(keys: string[]): Promise<Array<string | undefined>> {
     if (keys.length === 0) {
       return [];
     }
     const values = await this.redis.mget(keys.map((key) => this.k(key)));
-    return values.map((v) => this.decode(v));
+    return values.map((v) => v ?? undefined);
   }
 
   /**
@@ -89,16 +88,5 @@ export class RedisDriver<T = unknown> implements Driver<T> {
 
   private k(key: string): string {
     return `${this.ns}:${key}`;
-  }
-
-  private decode(raw: string | null): Entry<T> | undefined {
-    if (raw === null) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(raw) as Entry<T>;
-    } catch {
-      return undefined;
-    }
   }
 }

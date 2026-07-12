@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { KeyvStore } from './keyv-store.js';
 import type { KeyvLike } from './keyv-store.js';
-import type { Entry } from '../item.js';
 
-const entry = (value: unknown): Entry => ({ value, createdAt: 1000, hardExpiresAt: 1600 });
+// Byte-agnostic store (FRSH-060): Freshen hands keyv opaque packed strings.
 
-function fakeKeyv(withIterator: boolean): KeyvLike & { map: Map<string, Entry> } {
-  const map = new Map<string, Entry>();
+function fakeKeyv(withIterator: boolean): KeyvLike & { map: Map<string, string> } {
+  const map = new Map<string, string>();
   const base: KeyvLike = {
     get: (key) => Promise.resolve(map.get(key)),
     set: (key, value) => {
@@ -16,7 +15,7 @@ function fakeKeyv(withIterator: boolean): KeyvLike & { map: Map<string, Entry> }
     delete: (key) => Promise.resolve(map.delete(key)),
   };
   if (withIterator) {
-    base.iterator = async function* (): AsyncIterableIterator<[string, Entry]> {
+    base.iterator = async function* (): AsyncIterableIterator<[string, string]> {
       for (const [k, v] of map) {
         yield [k, v];
       }
@@ -30,9 +29,9 @@ describe('KeyvStore', () => {
     const keyv = fakeKeyv(false);
     const setSpy = vi.spyOn(keyv, 'set');
     const store = new KeyvStore(keyv);
-    await store.write('k', entry('v'), 60);
-    expect(setSpy).toHaveBeenCalledWith('k', entry('v'), 60_000);
-    expect((await store.read('k'))?.value).toBe('v');
+    await store.write('k', 'packed-v', 60);
+    expect(setSpy).toHaveBeenCalledWith('k', 'packed-v', 60_000);
+    expect(await store.read('k')).toBe('packed-v');
   });
 
   it('returns undefined for a missing key', async () => {
@@ -42,7 +41,7 @@ describe('KeyvStore', () => {
   it('deleteExact removes only the named key', async () => {
     const keyv = fakeKeyv(false);
     const store = new KeyvStore(keyv);
-    await store.write('a', entry(1), 60);
+    await store.write('a', '1', 60);
     await store.deleteExact('a');
     expect(await store.read('a')).toBeUndefined();
   });
@@ -50,9 +49,9 @@ describe('KeyvStore', () => {
   it('deletePrefix drops the subtree via iterator when available', async () => {
     const keyv = fakeKeyv(true);
     const store = new KeyvStore(keyv);
-    await store.write('a/b', entry(1), 60);
-    await store.write('a/b/c', entry(2), 60);
-    await store.write('a/bx', entry(3), 60);
+    await store.write('a/b', '1', 60);
+    await store.write('a/b/c', '2', 60);
+    await store.write('a/bx', '3', 60);
     await store.deletePrefix('a/b');
     expect(await store.read('a/b')).toBeUndefined();
     expect(await store.read('a/b/c')).toBeUndefined();
